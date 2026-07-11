@@ -78,6 +78,8 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .approve-user:hover { background: #ccefe1; }
 .block-user { background: #fff0f0; color: #b42318; }
 .block-user:hover { background: #ffdede; }
+.delete-user { background: #f1f3f6; color: #475467; font-size: 15px; }
+.delete-user:hover { background: #dfe4ea; color: #172033; }
 .empty-state { padding: 80px 20px; text-align: center; }
 .empty-state p, .editor-title p { margin: 6px 0 0; }
 .editor-title { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 20px; }

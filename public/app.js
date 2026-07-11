@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 import { getAuth, GithubAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, collection, getDocs, writeBatch, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
@@ -18,6 +18,8 @@ let adminUsers = [];
 let currentReport = [];
 let currentReportTitle = "student-report";
 let userListMode = "users";
+let unsubscribeStudent = null;
+let unsubscribeUsers = null;
 
 const el = (id) => document.getElementById(id);
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
@@ -44,14 +46,61 @@ async function githubProfile(token) {
 async function routeUser(user) {
   currentUser = user;
   const admin = await getDoc(doc(db, "admins", user.uid));
-  if (admin.exists()) { showView("admin-view"); await loadUsers(); return; }
+  if (admin.exists()) { showView("admin-view"); startUsersListener(); return; }
   const blocked = await getDoc(doc(db, "blocked_users", user.uid));
   if (blocked.exists()) { showView("blocked-view"); return; }
   const snapshot = await getDoc(doc(db, "users", user.uid));
   if (!snapshot.exists()) { showView("registration-view"); return; }
-  const profile = snapshot.data();
-  if (!profile.approved) { el("pending-registration").textContent = profile.registration_number; showView("pending-view"); return; }
-  renderStudent(user, profile); showView("student-view");
+  startStudentListener(user);
+}
+
+function stopRealtimeListeners() {
+  if (unsubscribeStudent) { unsubscribeStudent(); unsubscribeStudent = null; }
+  if (unsubscribeUsers) { unsubscribeUsers(); unsubscribeUsers = null; }
+}
+
+function startStudentListener(user) {
+  if (unsubscribeStudent) unsubscribeStudent();
+  unsubscribeStudent = onSnapshot(doc(db, "users", user.uid), async (snapshot) => {
+    if (!snapshot.exists()) {
+      const blocked = await getDoc(doc(db, "blocked_users", user.uid));
+      showView(blocked.exists() ? "blocked-view" : "registration-view");
+      return;
+    }
+    const profile = snapshot.data();
+    if (!profile.approved) {
+      el("pending-registration").textContent = profile.registration_number || "—";
+      showView("pending-view");
+      return;
+    }
+    renderStudent(user, profile);
+    showView("student-view");
+  }, (error) => {
+    el("login-message").textContent = friendlyLoginError(error);
+    showView("login-view");
+  });
+}
+
+function startUsersListener() {
+  if (unsubscribeUsers) unsubscribeUsers();
+  unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+    adminUsers = snapshot.docs
+      .map((item) => ({ id: item.id, ...item.data() }))
+      .sort((a, b) => (a.registration_number || "").localeCompare(b.registration_number || ""));
+    renderUserList();
+    refreshReportCategories();
+    if (!el("report-table").hidden) generateReport();
+    if (selectedUserId) {
+      const selectedStillExists = adminUsers.some((user) => user.id === selectedUserId);
+      if (!selectedStillExists) {
+        selectedUserId = null;
+        el("student-editor").hidden = true;
+        el("no-user-selected").hidden = false;
+      }
+    }
+  }, (error) => {
+    alert(`Real-time users update failed: ${friendlyLoginError(error)}`);
+  });
 }
 
 el("github-login").addEventListener("click", async () => {
@@ -311,14 +360,17 @@ function renderUserList() {
     const title = document.createElement("strong"); title.textContent = [user.first_name, user.last_name].filter(Boolean).join(" ") || user.user_name;
     const meta = document.createElement("span"); meta.textContent = `${user.registration_number || "No registration"} · ${user.approved ? "Approved" : "Pending"}`;
     content.append(title, meta); button.append(content);
+    const actions = document.createElement("span"); actions.className = "pending-actions";
     if (userListMode === "pending") {
-      const actions = document.createElement("span"); actions.className = "pending-actions";
       const approve = document.createElement("button"); approve.type = "button"; approve.className = "pending-action approve-user"; approve.title = "Approve user"; approve.setAttribute("aria-label", `Approve ${title.textContent}`); approve.textContent = "✓";
       const block = document.createElement("button"); block.type = "button"; block.className = "pending-action block-user"; block.title = "Delete and block user"; block.setAttribute("aria-label", `Delete and block ${title.textContent}`); block.textContent = "×";
       approve.addEventListener("click", async (event) => { event.stopPropagation(); await approvePendingUser(user, approve); });
       block.addEventListener("click", async (event) => { event.stopPropagation(); await blockPendingUser(user, block); });
-      actions.append(approve, block); button.append(actions);
+      actions.append(approve, block);
     }
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "pending-action delete-user"; remove.title = "Delete user profile"; remove.setAttribute("aria-label", `Delete ${title.textContent}`); remove.textContent = "🗑";
+    remove.addEventListener("click", async (event) => { event.stopPropagation(); await deleteUserProfile(user, remove); });
+    actions.append(remove); button.append(actions);
     button.addEventListener("click", () => selectUser(user.id));
     button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectUser(user.id); } });
     list.append(button);
@@ -359,6 +411,22 @@ async function blockPendingUser(user, button) {
     if (selectedUserId === user.id) { selectedUserId = null; el("student-editor").hidden = true; el("no-user-selected").hidden = false; }
     await loadUsers();
   } catch (error) { alert(`Could not block user: ${error.message}`); button.disabled = false; }
+}
+
+async function deleteUserProfile(user, button) {
+  const identity = `${[user.first_name, user.last_name].filter(Boolean).join(" ") || user.user_name} (${user.registration_number || "no registration"})`;
+  if (!confirm(`Delete the Firestore profile for ${identity}? This does not block the account, so the user can register again.`)) return;
+  button.disabled = true;
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(db, "users", user.id));
+    await batch.commit();
+    if (selectedUserId === user.id) {
+      selectedUserId = null;
+      el("student-editor").hidden = true;
+      el("no-user-selected").hidden = false;
+    }
+  } catch (error) { alert(`Could not delete user: ${error.message}`); button.disabled = false; }
 }
 
 function changeUserListMode(mode) {
@@ -438,4 +506,9 @@ document.querySelectorAll(".user-tab").forEach((button) => button.addEventListen
 el("report-type").addEventListener("change", () => { el("report-category-label").hidden = el("report-type").value !== "category"; });
 el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport);
 el("download-template").addEventListener("click", downloadMarksTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; el("csv-message").textContent = ""; }); el("upload-marks").addEventListener("click", uploadMarksCsv);
-onAuthStateChanged(auth, async (user) => { if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("login-message").textContent = friendlyLoginError(error); showView("login-view"); } });
+onAuthStateChanged(auth, async (user) => {
+  stopRealtimeListeners();
+  if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); showView("login-view"); return; }
+  try { await routeUser(user); }
+  catch (error) { el("login-message").textContent = friendlyLoginError(error); showView("login-view"); }
+});
