@@ -29,7 +29,7 @@
     <form id="registration-form">
       <label for="registration-number">Registration number</label>
       <input id="registration-number" name="registration_number" list="registration-numbers"
-             placeholder="For example: 2022-BSE-049" pattern="2022-BSE-(049|05[0-9]|06[0-9]|07[0-7])" required>
+             placeholder="For example: 2024-BSE-00" pattern="2024-BSE-(0[1-9]|[1-9][0-9])" required>
       <datalist id="registration-numbers"></datalist>
       <button type="submit">Submit registration</button>
     </form>
@@ -42,6 +42,13 @@
     <h1>Approval pending</h1>
     <p>Your registration number is <strong id="pending-registration">—</strong>.</p>
     <p>An administrator must approve your account before you can view marks.</p>
+    <button class="secondary signout-button" type="button">Sign out</button>
+  </main>
+
+  <main id="blocked-view" class="login-card" hidden>
+    <div class="logo blocked-logo">×</div>
+    <h1>Account blocked</h1>
+    <p>Your account has been blocked by an administrator and cannot register or access this portal.</p>
     <button class="secondary signout-button" type="button">Sign out</button>
   </main>
 
@@ -75,6 +82,10 @@
     <section class="admin-grid">
       <aside class="users-card">
         <div class="section-heading"><h2>Users</h2><button id="refresh-users" class="small secondary" type="button">Refresh</button></div>
+        <div class="user-tabs" role="tablist" aria-label="User status">
+          <button id="approved-users-tab" class="user-tab active" type="button" data-user-view="users">Users <span id="approved-users-count">0</span></button>
+          <button id="pending-users-tab" class="user-tab" type="button" data-user-view="pending">Pending Users <span id="pending-users-count">0</span></button>
+        </div>
         <input id="user-search" type="search" placeholder="Search name or registration">
         <div id="users-list" class="users-list"></div>
       </aside>
@@ -112,7 +123,7 @@
       <section id="csv-import-panel" class="csv-panel" hidden>
         <div>
           <h3>Bulk marks upload</h3>
-          <p>Download the selected category template, enter obtained marks, then upload the completed CSV.</p>
+          <p id="csv-description">Download a template, enter obtained marks, then upload the completed CSV.</p>
         </div>
         <div class="csv-actions">
           <button id="download-template" class="secondary" type="button">1. Download template</button>

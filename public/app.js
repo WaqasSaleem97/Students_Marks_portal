@@ -10,18 +10,28 @@ const provider = new GithubAuthProvider();
 provider.addScope("read:user");
 provider.addScope("user:email");
 
-const allowedRegistrations = Array.from({ length: 29 }, (_, i) => `2022-BSE-${String(49 + i).padStart(3, "0")}`);
-const views = ["loading-view", "login-view", "registration-view", "pending-view", "student-view", "admin-view"];
+const allowedRegistrations = Array.from({ length: 99 }, (_, i) => `2024-BSE-${String(1 + i).padStart(2, "0")}`);
+const views = ["loading-view", "login-view", "registration-view", "pending-view", "blocked-view", "student-view", "admin-view"];
 let currentUser = null;
 let selectedUserId = null;
 let adminUsers = [];
 let currentReport = [];
 let currentReportTitle = "student-report";
+let userListMode = "users";
 
 const el = (id) => document.getElementById(id);
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 function splitName(name = "") { const p = name.trim().split(/\s+/).filter(Boolean); return { first_name: p.shift() || "", last_name: p.join(" ") }; }
 function percent(obtained, total) { return total > 0 ? `${((obtained / total) * 100).toFixed(1)}%` : "—"; }
+
+function friendlyLoginError(error) {
+  if (error?.code === "permission-denied" || error?.code === "firestore/permission-denied") {
+    return "Access denied. Your account has been blocked or is not permitted to use this portal. Please contact the portal administrator if you believe this is a mistake.";
+  }
+  if (error?.code === "auth/popup-closed-by-user") return "GitHub sign-in was cancelled before completion.";
+  if (error?.code === "auth/popup-blocked") return "The GitHub sign-in window was blocked by your browser. Please allow pop-ups and try again.";
+  return error?.message || "Unable to sign in. Please try again or contact the portal administrator.";
+}
 
 allowedRegistrations.forEach((number) => { const option = document.createElement("option"); option.value = number; el("registration-numbers").append(option); });
 
@@ -35,6 +45,8 @@ async function routeUser(user) {
   currentUser = user;
   const admin = await getDoc(doc(db, "admins", user.uid));
   if (admin.exists()) { showView("admin-view"); await loadUsers(); return; }
+  const blocked = await getDoc(doc(db, "blocked_users", user.uid));
+  if (blocked.exists()) { showView("blocked-view"); return; }
   const snapshot = await getDoc(doc(db, "users", user.uid));
   if (!snapshot.exists()) { showView("registration-view"); return; }
   const profile = snapshot.data();
@@ -50,13 +62,13 @@ el("github-login").addEventListener("click", async () => {
     if (!credential?.accessToken) throw new Error("GitHub did not return an access token.");
     sessionStorage.setItem("githubProfile", JSON.stringify(await githubProfile(credential.accessToken)));
     await routeUser(result.user);
-  } catch (error) { el("login-message").textContent = error.message; }
+  } catch (error) { el("login-message").textContent = friendlyLoginError(error); }
 });
 
 el("registration-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const registration = el("registration-number").value.trim().toUpperCase();
-  if (!allowedRegistrations.includes(registration)) { el("registration-message").textContent = "Enter a registration number from 2022-BSE-049 through 2022-BSE-077."; return; }
+  if (!allowedRegistrations.includes(registration)) { el("registration-message").textContent = "Enter a registration number from 2024-BSE-01 through 2024-BSE-99."; return; }
   try {
     const gh = JSON.parse(sessionStorage.getItem("githubProfile") || "{}");
     const names = splitName(gh.name || currentUser.displayName || "");
@@ -179,7 +191,10 @@ function generateReport() {
   if (type === "category") { const scored = currentReport.filter((row) => row.categoryTotal !== ""); const average = scored.length ? scored.reduce((sum, row) => sum + Number(row.categoryTotal), 0) / scored.length : 0; el("report-summary").textContent = `${category} report: ${users.length} students, ${scored.length} with marks, average obtained total ${scored.length ? average.toFixed(1) : "not available"}.`; }
   else el("report-summary").textContent = `Overall report: ${users.length} students across ${categoryNames.length} assessment categories.`;
   el("report-table").dataset.columns = JSON.stringify(columns);
-  el("csv-import-panel").hidden = type !== "category";
+  el("csv-import-panel").hidden = false;
+  el("csv-description").textContent = type === "category"
+    ? `Download the ${category} template, enter obtained marks, then upload the completed CSV.`
+    : "Download one template containing every category and assessment, enter obtained marks, then upload it to update all categories.";
 }
 
 function downloadReport() {
@@ -188,11 +203,46 @@ function downloadReport() {
 }
 
 function downloadMarksTemplate() {
-  const category = el("report-category").value; const definitions = categoryDefinition(category);
-  if (!category || !definitions.length) { el("csv-message").textContent = "The selected category has no assessment entries to use as template fields."; return; }
-  const users = adminUsers.filter((user) => user.approved); const headers = ["Registration Number", "Student Name", ...definitions.map((item) => `${item.name} [Max:${item.total}]`)];
-  const rows = [headers, ...users.map((user) => { const existing = categoryItemValues(user, category, definitions); return [user.registration_number || "", [user.first_name, user.last_name].filter(Boolean).join(" ") || user.user_name || "", ...existing]; })];
-  saveCsv(rows, `${category}-marks-template.csv`);
+  const type = el("report-type").value;
+  if (type === "category") {
+    const category = el("report-category").value; const definitions = categoryDefinition(category);
+    if (!category || !definitions.length) { el("csv-message").textContent = "The selected category has no assessment entries to use as template fields."; return; }
+    const users = adminUsers.filter((user) => user.approved); const headers = ["Registration Number", "Student Name", ...definitions.map((item) => `${item.name} [Max:${item.total}]`)];
+    const rows = [headers, ...users.map((user) => { const existing = categoryItemValues(user, category, definitions); return [user.registration_number || "", [user.first_name, user.last_name].filter(Boolean).join(" ") || user.user_name || "", ...existing]; })];
+    saveCsv(rows, `${category}-marks-template.csv`);
+    return;
+  }
+
+  const definitions = overallDefinitions();
+  if (!definitions.length) { el("csv-message").textContent = "No assessment categories exist yet. Add marks fields to at least one student first."; return; }
+  const users = adminUsers.filter((user) => user.approved);
+  const headers = ["Registration Number", "Student Name", ...definitions.map((item) => `${item.category} :: ${item.name} [Max:${item.total}]`)];
+  const rows = [headers, ...users.map((user) => [
+    user.registration_number || "",
+    [user.first_name, user.last_name].filter(Boolean).join(" ") || user.user_name || "",
+    ...overallItemValues(user, definitions)
+  ])];
+  saveCsv(rows, "overall-marks-template.csv");
+}
+
+function overallDefinitions() {
+  const definitions = new Map();
+  adminUsers.forEach((user) => markCategories(user.marks).forEach((category) => {
+    (Array.isArray(category.items) ? category.items : []).forEach((item) => {
+      const categoryName = String(category.name || "").trim(); const itemName = String(item.name || "").trim(); const key = `${categoryName.toLowerCase()}\u0000${itemName.toLowerCase()}`;
+      if (categoryName && itemName && !definitions.has(key)) definitions.set(key, { category: categoryName, name: itemName, total: Number(item.total || 0) });
+    });
+  }));
+  return [...definitions.values()].sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
+}
+
+function overallItemValues(user, definitions) {
+  const categories = markCategories(user.marks);
+  return definitions.map((definition) => {
+    const category = categories.find((candidate) => String(candidate.name).toLowerCase() === definition.category.toLowerCase());
+    const item = (category?.items || []).find((candidate) => String(candidate.name).toLowerCase() === definition.name.toLowerCase());
+    return item ? Number(item.obtained || 0) : "";
+  });
 }
 
 function saveCsv(rows, filename) {
@@ -210,22 +260,116 @@ async function uploadMarksCsv() {
   try {
     const categoryName = el("report-category").value; const rows = parseCsv((await file.text()).replace(/^\uFEFF/, "")); if (rows.length < 2) throw new Error("The CSV does not contain student rows.");
     const headers = rows[0]; if (headers[0] !== "Registration Number" || headers[1] !== "Student Name") throw new Error("This file is not a valid marks template.");
-    const definitions = headers.slice(2).map((header) => { const match = header.match(/^(.*) \[Max:([0-9.]+)\]$/); if (!match) throw new Error(`Invalid assessment column: ${header}`); return { name: match[1], total: Number(match[2]) }; });
+    const isOverallTemplate = headers.slice(2).every((header) => header.includes(" :: "));
+    const definitions = headers.slice(2).map((header) => {
+      const match = isOverallTemplate
+        ? header.match(/^(.*?) :: (.*?) \[Max:([0-9.]+)\]$/)
+        : header.match(/^(.*) \[Max:([0-9.]+)\]$/);
+      if (!match) throw new Error(`Invalid assessment column: ${header}`);
+      return isOverallTemplate
+        ? { category: match[1].trim(), name: match[2].trim(), total: Number(match[3]) }
+        : { category: categoryName, name: match[1].trim(), total: Number(match[2]) };
+    });
+    if (!definitions.length) throw new Error("The template contains no assessment columns.");
     const updates = [];
-    rows.slice(1).forEach((row, index) => { const registration = String(row[0] || "").trim().toUpperCase(); const user = adminUsers.find((candidate) => candidate.registration_number === registration); if (!user) throw new Error(`Row ${index + 2}: registration ${registration || "is empty"} was not found.`); const items = definitions.map((definition, itemIndex) => { const raw = String(row[itemIndex + 2] ?? "").trim(); if (raw === "") throw new Error(`Row ${index + 2}: ${definition.name} is empty.`); const obtained = Number(raw); if (!Number.isFinite(obtained) || obtained < 0 || obtained > definition.total) throw new Error(`Row ${index + 2}: ${definition.name} must be between 0 and ${definition.total}.`); return { name: definition.name, obtained, total: definition.total }; }); updates.push({ user, items }); });
-    const batch = writeBatch(db); updates.forEach(({ user, items }) => { const categories = markCategories(user.marks).filter((category) => String(category.name).toLowerCase() !== categoryName.toLowerCase()); categories.push({ name: categoryName, items }); batch.update(doc(db, "users", user.id), { marks: { categories }, updated_at: serverTimestamp() }); }); await batch.commit();
-    el("csv-message").className = "message success"; el("csv-message").textContent = `${updates.length} student records updated successfully.`; await loadUsers(); generateReport(); el("marks-csv").value = "";
+    rows.slice(1).forEach((row, index) => {
+      const registration = String(row[0] || "").trim().toUpperCase(); const user = adminUsers.find((candidate) => candidate.registration_number === registration);
+      if (!user) throw new Error(`Row ${index + 2}: registration ${registration || "is empty"} was not found.`);
+      const values = definitions.map((definition, itemIndex) => { const raw = String(row[itemIndex + 2] ?? "").trim(); if (raw === "") throw new Error(`Row ${index + 2}: ${definition.category} / ${definition.name} is empty.`); const obtained = Number(raw); if (!Number.isFinite(obtained) || obtained < 0 || obtained > definition.total) throw new Error(`Row ${index + 2}: ${definition.category} / ${definition.name} must be between 0 and ${definition.total}.`); return { ...definition, obtained }; });
+      updates.push({ user, values });
+    });
+    if (updates.length > 500) throw new Error("A single upload can update at most 500 students.");
+    const batch = writeBatch(db);
+    updates.forEach(({ user, values }) => {
+      let categories;
+      if (isOverallTemplate) {
+        const uploadedNames = new Set(values.map((value) => value.category.toLowerCase()));
+        categories = markCategories(user.marks).filter((category) => !uploadedNames.has(String(category.name).toLowerCase()));
+        const grouped = new Map(); values.forEach((value) => { const key = value.category.toLowerCase(); if (!grouped.has(key)) grouped.set(key, { name: value.category, items: [] }); grouped.get(key).items.push({ name: value.name, obtained: value.obtained, total: value.total }); }); categories.push(...grouped.values());
+      } else {
+        categories = markCategories(user.marks).filter((category) => String(category.name).toLowerCase() !== categoryName.toLowerCase());
+        categories.push({ name: categoryName, items: values.map((value) => ({ name: value.name, obtained: value.obtained, total: value.total })) });
+      }
+      batch.update(doc(db, "users", user.id), { marks: { categories }, updated_at: serverTimestamp() });
+    });
+    await batch.commit();
+    el("csv-message").className = "message success"; el("csv-message").textContent = `${updates.length} student records updated successfully from the ${isOverallTemplate ? "overall" : categoryName} template.`; await loadUsers(); generateReport(); el("marks-csv").value = "";
   } catch (error) { el("csv-message").textContent = error.message; } finally { button.disabled = !el("marks-csv").files.length; }
 }
 
 function renderUserList() {
   const query = el("user-search").value.toLowerCase(); const list = el("users-list"); list.replaceChildren();
-  adminUsers.filter((u) => `${u.first_name} ${u.last_name} ${u.registration_number} ${u.user_name}`.toLowerCase().includes(query)).forEach((user) => {
-    const button = document.createElement("button"); button.type = "button"; button.className = `user-item${user.id === selectedUserId ? " active" : ""}`;
+  const approvedUsers = adminUsers.filter((user) => user.approved);
+  const pendingUsers = adminUsers.filter((user) => !user.approved);
+  el("approved-users-count").textContent = approvedUsers.length;
+  el("pending-users-count").textContent = pendingUsers.length;
+  const selectedUsers = userListMode === "pending" ? pendingUsers : approvedUsers;
+  const filteredUsers = selectedUsers.filter((u) => `${u.first_name} ${u.last_name} ${u.registration_number} ${u.user_name}`.toLowerCase().includes(query));
+  filteredUsers.forEach((user) => {
+    const button = document.createElement("div"); button.className = `user-item${user.id === selectedUserId ? " active" : ""}`; button.tabIndex = 0; button.setAttribute("role", "button");
+    const content = document.createElement("span"); content.className = "user-item-content";
     const title = document.createElement("strong"); title.textContent = [user.first_name, user.last_name].filter(Boolean).join(" ") || user.user_name;
     const meta = document.createElement("span"); meta.textContent = `${user.registration_number || "No registration"} · ${user.approved ? "Approved" : "Pending"}`;
-    button.append(title, meta); button.addEventListener("click", () => selectUser(user.id)); list.append(button);
+    content.append(title, meta); button.append(content);
+    if (userListMode === "pending") {
+      const actions = document.createElement("span"); actions.className = "pending-actions";
+      const approve = document.createElement("button"); approve.type = "button"; approve.className = "pending-action approve-user"; approve.title = "Approve user"; approve.setAttribute("aria-label", `Approve ${title.textContent}`); approve.textContent = "✓";
+      const block = document.createElement("button"); block.type = "button"; block.className = "pending-action block-user"; block.title = "Delete and block user"; block.setAttribute("aria-label", `Delete and block ${title.textContent}`); block.textContent = "×";
+      approve.addEventListener("click", async (event) => { event.stopPropagation(); await approvePendingUser(user, approve); });
+      block.addEventListener("click", async (event) => { event.stopPropagation(); await blockPendingUser(user, block); });
+      actions.append(approve, block); button.append(actions);
+    }
+    button.addEventListener("click", () => selectUser(user.id));
+    button.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectUser(user.id); } });
+    list.append(button);
   });
+  if (!filteredUsers.length) {
+    const empty = document.createElement("p"); empty.className = "user-list-empty";
+    empty.textContent = query ? "No matching users found." : userListMode === "pending" ? "No pending users." : "No approved users.";
+    list.append(empty);
+  }
+}
+
+async function approvePendingUser(user, button) {
+  button.disabled = true;
+  try {
+    await updateDoc(doc(db, "users", user.id), { approved: true, approved_at: serverTimestamp(), updated_at: serverTimestamp() });
+    if (selectedUserId === user.id) selectedUserId = null;
+    await loadUsers();
+  } catch (error) { alert(`Could not approve user: ${error.message}`); button.disabled = false; }
+}
+
+async function blockPendingUser(user, button) {
+  const identity = `${[user.first_name, user.last_name].filter(Boolean).join(" ") || user.user_name} (${user.registration_number || "no registration"})`;
+  if (!confirm(`Delete and permanently block ${identity}? This user will not be able to register again with the same GitHub account.`)) return;
+  button.disabled = true;
+  try {
+    const batch = writeBatch(db);
+    batch.set(doc(db, "blocked_users", user.id), {
+      firebase_uid: user.id,
+      github_id: user.github_id || "",
+      user_name: user.user_name || "",
+      email: user.email || "",
+      registration_number: user.registration_number || "",
+      blocked_at: serverTimestamp(),
+      blocked_by: currentUser.uid
+    });
+    batch.delete(doc(db, "users", user.id));
+    await batch.commit();
+    if (selectedUserId === user.id) { selectedUserId = null; el("student-editor").hidden = true; el("no-user-selected").hidden = false; }
+    await loadUsers();
+  } catch (error) { alert(`Could not block user: ${error.message}`); button.disabled = false; }
+}
+
+function changeUserListMode(mode) {
+  userListMode = mode;
+  document.querySelectorAll(".user-tab").forEach((button) => {
+    const active = button.dataset.userView === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  el("user-search").value = "";
+  renderUserList();
 }
 
 function addMarkRow(container, mark = {}) {
@@ -290,7 +434,8 @@ el("student-editor").addEventListener("submit", async (event) => {
 el("add-category").addEventListener("click", () => addCategory());
 document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
 el("refresh-users").addEventListener("click", loadUsers); el("user-search").addEventListener("input", renderUserList);
+document.querySelectorAll(".user-tab").forEach((button) => button.addEventListener("click", () => changeUserListMode(button.dataset.userView)));
 el("report-type").addEventListener("change", () => { el("report-category-label").hidden = el("report-type").value !== "category"; });
 el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport);
 el("download-template").addEventListener("click", downloadMarksTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; el("csv-message").textContent = ""; }); el("upload-marks").addEventListener("click", uploadMarksCsv);
-onAuthStateChanged(auth, async (user) => { if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("login-message").textContent = error.message; showView("login-view"); } });
+onAuthStateChanged(auth, async (user) => { if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("login-message").textContent = friendlyLoginError(error); showView("login-view"); } });
