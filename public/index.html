@@ -8,143 +8,83 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main id="loading-view" class="login-card">
-    <div class="spinner" aria-hidden="true"></div>
-    <h1>Loading portal</h1>
-    <p>Restoring your secure session…</p>
-  </main>
+  <main id="loading-view" class="login-card"><div class="spinner"></div><h1>Loading portal</h1><p>Restoring your secure session…</p></main>
 
   <main id="login-view" class="login-card" hidden>
-    <div class="logo">SM</div>
-    <h1>Student Marks Portal</h1>
-    <p>Sign up or sign in securely with your GitHub account.</p>
-    <button id="github-login" type="button">Continue with GitHub</button>
-    <p id="login-message" class="message" role="status"></p>
+    <div class="logo">SM</div><h1>Student Marks Portal</h1><p>Sign up or sign in securely with your GitHub account.</p>
+    <button id="github-login" type="button">Continue with GitHub</button><p id="login-message" class="message" role="status"></p>
   </main>
 
   <main id="registration-view" class="login-card" hidden>
-    <div class="logo">ID</div>
-    <h1>Complete registration</h1>
-    <p>Enter your university registration number. Your account will require administrator approval.</p>
+    <div class="logo">ID</div><h1 id="registration-title">Complete registration</h1>
+    <p id="registration-help">Enter your registration number, course and section. The enrollment requires administrator approval.</p>
     <form id="registration-form">
-      <label for="registration-number">Registration number</label>
-      <input id="registration-number" name="registration_number" list="registration-numbers"
-             placeholder="For example: 2024-BSE-00" pattern="2024-BSE-(0[1-9]|[1-9][0-9])" required>
+      <label id="registration-label">Registration number
+        <input id="registration-number" list="registration-numbers" placeholder="For example: 2024-BSE-01" pattern="2024-BSE-(0[1-9]|[1-9][0-9])" required>
+      </label>
       <datalist id="registration-numbers"></datalist>
-      <button type="submit">Submit registration</button>
+      <label>Course<select id="registration-course" required><option value="">Select course</option></select></label>
+      <label>Section<select id="registration-section" required><option value="">Select section</option></select></label>
+      <button type="submit">Submit enrollment</button>
     </form>
-    <button class="secondary signout-button" type="button">Sign out</button>
+    <div class="registration-actions">
+      <button id="cancel-enrollment" class="secondary" type="button" hidden>Cancel</button>
+      <button class="secondary signout-button" type="button">Sign out</button>
+    </div>
     <p id="registration-message" class="message" role="status"></p>
   </main>
 
-  <main id="pending-view" class="login-card" hidden>
-    <div class="logo pending-logo">…</div>
-    <h1>Approval pending</h1>
-    <p>Your registration number is <strong id="pending-registration">—</strong>.</p>
-    <p>An administrator must approve your account before you can view marks.</p>
-    <button class="secondary signout-button" type="button">Sign out</button>
+  <main id="pending-view" class="dashboard" hidden>
+    <header class="dashboard-header"><div><p class="eyebrow">Student Marks Portal</p><h1>Course enrollments</h1></div><button class="secondary logout signout-button">Sign out</button></header>
+    <section class="profile-card compact-profile"><img id="pending-avatar" class="avatar" alt="Profile"><div><h2 id="pending-name">Student</h2><p id="pending-registration">—</p></div><button id="pending-add-course" class="small">+ Enroll in another course</button></section>
+    <section class="marks-card"><div class="section-heading"><div><p class="eyebrow">Enrollment status</p><h2>Your courses</h2></div></div><div id="pending-courses" class="course-status-grid"></div></section>
   </main>
 
-  <main id="blocked-view" class="login-card" hidden>
-    <div class="logo blocked-logo">×</div>
-    <h1>Account blocked</h1>
-    <p>Your account has been blocked by an administrator and cannot register or access this portal.</p>
-    <button class="secondary signout-button" type="button">Sign out</button>
-  </main>
+  <main id="blocked-view" class="login-card" hidden><div class="logo blocked-logo">×</div><h1>Account blocked</h1><p>Your account has been blocked by an administrator. Contact the portal administrator if you believe this is a mistake.</p><button class="secondary signout-button">Sign out</button></main>
 
   <main id="student-view" class="dashboard" hidden>
-    <header class="dashboard-header">
-      <div><p class="eyebrow">Student Marks Portal</p><h1>Academic Record</h1></div>
-      <button class="secondary logout signout-button" type="button">Sign out</button>
-    </header>
-    <section class="profile-card">
-      <img id="student-avatar" class="avatar" alt="GitHub profile picture">
-      <div><h2 id="student-name">Student</h2><p class="success">Approved student</p></div>
-      <dl class="profile-details">
-        <div><dt>Registration</dt><dd id="student-registration">—</dd></div>
-        <div><dt>GitHub username</dt><dd id="student-username">—</dd></div>
-        <div><dt>Email</dt><dd id="student-email">—</dd></div>
-        <div><dt>Status</dt><dd>Approved</dd></div>
-      </dl>
-    </section>
-    <section class="marks-card">
-      <div class="section-heading"><div><p class="eyebrow">Assessment summary</p><h2>Your Marks</h2></div><span id="marks-status" class="badge">Not published</span></div>
-      <div id="category-tabs" class="tabs" role="tablist"></div>
-      <div class="table-wrap"><table><thead><tr><th>Assessment</th><th>Obtained</th><th>Total</th><th>Percentage</th></tr></thead><tbody id="student-marks-body"></tbody><tfoot><tr><td>Total</td><td id="category-obtained">—</td><td id="category-total">—</td><td id="category-percent">—</td></tr></tfoot></table></div>
-    </section>
+    <header class="dashboard-header"><div><p class="eyebrow">Student Marks Portal</p><h1>Academic Record</h1></div><button class="secondary logout signout-button">Sign out</button></header>
+    <section class="profile-card"><img id="student-avatar" class="avatar" alt="GitHub profile"><div><h2 id="student-name">Student</h2><p class="success">GitHub authenticated</p></div><dl class="profile-details"><div><dt>Registration</dt><dd id="student-registration">—</dd></div><div><dt>GitHub username</dt><dd id="student-username">—</dd></div><div><dt>Email</dt><dd id="student-email">—</dd></div><div><dt>Approved courses</dt><dd id="student-course-count">0</dd></div></dl></section>
+    <section class="marks-card"><div class="enrollment-toolbar"><button id="add-course" class="small">+ Enroll in another course</button></div><div class="section-heading"><div><p class="eyebrow">Approved courses</p><h2>Course Marks</h2></div><span id="marks-status" class="badge">Not published</span></div><div id="student-course-tabs" class="tabs"></div><div id="category-tabs" class="tabs secondary-tabs"></div><div class="table-wrap"><table><thead><tr><th>Assessment</th><th>Obtained</th><th>Total</th><th>Percentage</th></tr></thead><tbody id="student-marks-body"></tbody><tfoot><tr><td>Total</td><td id="category-obtained">—</td><td id="category-total">—</td><td id="category-percent">—</td></tr></tfoot></table></div></section>
   </main>
 
   <main id="admin-view" class="dashboard" hidden>
-    <header class="dashboard-header">
-      <div><p class="eyebrow">Administration</p><h1>Students and Marks</h1></div>
-      <button class="secondary logout signout-button" type="button">Sign out</button>
-    </header>
+    <header class="dashboard-header"><div><p class="eyebrow">Administration</p><h1>Courses, Students and Marks</h1></div><button class="secondary logout signout-button">Sign out</button></header>
+
+    <section class="course-admin-card">
+      <div class="section-heading"><div><p class="eyebrow">Course management</p><h2>Create Course</h2></div></div>
+      <form id="course-form" class="course-form"><label>Course name<input id="course-name" placeholder="Cloud Computing" required></label><label>Course code<input id="course-code" placeholder="CC" required></label><label>Sections<input id="course-sections" placeholder="A, B" required></label><button type="submit">Create course</button></form>
+      <p id="course-message" class="message"></p><div id="course-list" class="course-chips"></div>
+    </section>
+
     <section class="admin-grid">
       <aside class="users-card">
-        <div class="section-heading"><h2>Users</h2><button id="refresh-users" class="small secondary" type="button">Refresh</button></div>
-        <div class="user-tabs" role="tablist" aria-label="User status">
-          <button id="approved-users-tab" class="user-tab active" type="button" data-user-view="users">Users <span id="approved-users-count">0</span></button>
-          <button id="pending-users-tab" class="user-tab" type="button" data-user-view="pending">Pending Users <span id="pending-users-count">0</span></button>
-        </div>
-        <input id="user-search" type="search" placeholder="Search name or registration">
-        <div id="users-list" class="users-list"></div>
+        <div class="section-heading"><h2>Enrollments</h2><button id="refresh-users" class="small secondary">Refresh</button></div>
+        <label>Course filter<select id="admin-course-filter"><option value="all">All courses</option></select></label>
+        <div class="user-tabs"><button class="user-tab active" data-user-view="users">Users <span id="approved-users-count">0</span></button><button class="user-tab" data-user-view="pending">Pending Users <span id="pending-users-count">0</span></button></div>
+        <input id="user-search" type="search" placeholder="Search name or registration"><div id="users-list" class="users-list"></div>
       </aside>
       <section class="editor-card">
-        <div id="no-user-selected" class="empty-state"><h2>Select a user</h2><p>Choose a student to approve the account or edit marks.</p></div>
+        <div id="no-user-selected" class="empty-state"><h2>Select an enrollment</h2><p>Choose a student enrollment to approve or edit course marks.</p></div>
         <form id="student-editor" hidden>
           <div class="editor-title"><div><h2 id="editor-name">Student</h2><p id="editor-identity">—</p></div><span id="editor-status" class="badge">Pending</span></div>
-          <div class="form-grid">
-            <label>Registration number<input id="editor-registration" required></label>
-            <label>Account status<select id="editor-approved"><option value="false">Pending</option><option value="true">Approved</option></select></label>
-          </div>
-          <div class="assessments-heading">
-            <div><h3>Assessment categories</h3><p>Create any category and add as many entries as needed.</p></div>
-            <button id="add-category" class="small" type="button">+ Add category</button>
-          </div>
-          <div id="category-editor"></div>
-          <button id="save-student" type="submit">Save user and marks</button>
-          <p id="admin-message" class="message" role="status"></p>
+          <div class="form-grid"><label>Course<input id="editor-course" readonly></label><label>Section<select id="editor-section"></select></label><label>Enrollment status<select id="editor-approved"><option value="false">Pending</option><option value="true">Approved</option></select></label></div>
+          <div class="assessments-heading"><div><h3>Assessment categories</h3><p>Create any category and add entries.</p></div><button id="add-category" class="small" type="button">+ Add category</button></div><div id="category-editor"></div>
+          <button id="save-student" type="submit">Save enrollment and marks</button><p id="admin-message" class="message"></p>
         </form>
       </section>
     </section>
+
     <section class="report-card">
-      <div class="section-heading">
-        <div><p class="eyebrow">Class analytics</p><h2>Student Reports</h2></div>
-        <button id="download-report" class="small secondary" type="button" disabled>Download report</button>
-      </div>
-      <div class="report-controls">
-        <label>Report type<select id="report-type"><option value="overall">Overall marks</option><option value="category">Category-wise marks</option></select></label>
-        <label id="report-category-label" hidden>Category<select id="report-category"></select></label>
-        <label>Students<select id="report-students"><option value="approved">Approved only</option><option value="all">All registered users</option></select></label>
-        <button id="generate-report" type="button">Generate report</button>
-      </div>
-      <p id="report-summary" class="report-summary">Select report options and generate a report.</p>
-      <div class="table-wrap"><table id="report-table" hidden><thead id="report-head"></thead><tbody id="report-body"></tbody></table></div>
-      <section id="csv-import-panel" class="csv-panel" hidden>
-        <div>
-          <h3>Bulk marks upload</h3>
-          <p id="csv-description">Download a template, enter obtained marks, then upload the completed CSV.</p>
-        </div>
-        <div class="csv-actions">
-          <button id="download-template" class="secondary" type="button">1. Download template</button>
-          <label class="file-button">2. Choose completed CSV<input id="marks-csv" type="file" accept=".csv,text/csv"></label>
-          <button id="upload-marks" type="button" disabled>3. Upload marks</button>
-        </div>
-        <p id="csv-message" class="message" role="status"></p>
-      </section>
+      <div class="section-heading"><div><p class="eyebrow">Class analytics</p><h2>Student Reports</h2></div><button id="download-report" class="small secondary" disabled>Download report</button></div>
+      <div class="report-controls"><label>Course<select id="report-course" required></select></label><label>Section<select id="report-section"><option value="both">Both Sections</option></select></label><label>Report type<select id="report-type"><option value="overall">Overall marks</option><option value="category">Category-wise marks</option></select></label><label id="report-category-label" hidden>Category<select id="report-category"></select></label><button id="generate-report" type="button">Generate report</button></div>
+      <p id="report-summary" class="report-summary">Select a course and generate a report.</p><div class="table-wrap"><table id="report-table" hidden><thead id="report-head"></thead><tbody id="report-body"></tbody></table></div>
+      <section id="csv-import-panel" class="csv-panel" hidden><h3>Bulk marks upload</h3><p id="csv-description">Download a template, enter marks, then upload it.</p><div class="csv-actions"><button id="download-template" class="secondary">1. Download template</button><label class="file-button">2. Choose completed CSV<input id="marks-csv" type="file" accept=".csv,text/csv"></label><button id="upload-marks" disabled>3. Upload marks</button></div><p id="csv-message" class="message"></p></section>
     </section>
   </main>
 
-  <template id="category-template">
-    <fieldset class="category-block">
-      <div class="category-heading">
-        <input class="category-name" required placeholder="Category name, e.g. Quiz, Midterm, Project">
-        <div class="category-actions"><button class="small secondary add-mark" type="button">+ Add entry</button><button class="small danger remove-category" type="button">Remove category</button></div>
-      </div>
-      <div class="category-rows"></div>
-    </fieldset>
-  </template>
-  <template id="mark-row-template"><div class="mark-row"><input class="mark-name" required placeholder="Entry name, e.g. Quiz 1"><input class="mark-obtained" type="number" min="0" step="0.01" required placeholder="Obtained"><input class="mark-total" type="number" min="0.01" step="0.01" required placeholder="Total"><button class="remove-row" type="button" aria-label="Remove">×</button></div></template>
+  <template id="category-template"><fieldset class="category-block"><div class="category-heading"><input class="category-name" required placeholder="Category name"><div class="category-actions"><button class="small secondary add-mark" type="button">+ Add entry</button><button class="small danger remove-category" type="button">Remove</button></div></div><div class="category-rows"></div></fieldset></template>
+  <template id="mark-row-template"><div class="mark-row"><input class="mark-name" required placeholder="Assessment name"><input class="mark-obtained" type="number" min="0" step="0.01" required placeholder="Obtained"><input class="mark-total" type="number" min="0.01" step="0.01" required placeholder="Total"><button class="remove-row" type="button">×</button></div></template>
   <script type="module" src="app.js"></script>
 </body>
 </html>

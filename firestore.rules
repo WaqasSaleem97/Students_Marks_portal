@@ -2,19 +2,9 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function isAdmin() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
-    }
-
-    function isBlocked() {
-      return signedIn()
-        && exists(/databases/$(database)/documents/blocked_users/$(request.auth.uid));
-    }
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    function isBlocked() { return signedIn() && exists(/databases/$(database)/documents/blocked_users/$(request.auth.uid)); }
 
     match /admins/{adminId} {
       allow read: if signedIn() && request.auth.uid == adminId;
@@ -22,8 +12,12 @@ service cloud.firestore {
     }
 
     match /blocked_users/{blockedId} {
-      allow read: if signedIn()
-                  && (request.auth.uid == blockedId || isAdmin());
+      allow read: if signedIn() && (request.auth.uid == blockedId || isAdmin());
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /courses/{courseId} {
+      allow read: if signedIn();
       allow create, update, delete: if isAdmin();
     }
 
@@ -31,20 +25,26 @@ service cloud.firestore {
       allow create: if signedIn()
                     && request.auth.uid == userId
                     && !isBlocked()
-                    && request.resource.data.approved == false
-                    && !request.resource.data.keys().hasAny([
-                      'marks', 'updated_at', 'approved_at'
-                    ])
                     && request.resource.data.keys().hasOnly([
-                      'first_name', 'last_name', 'registration_number',
-                      'user_name', 'email', 'photo_url', 'github_id',
-                      'approved', 'created_at'
+                      'first_name', 'last_name', 'created_at', 'email',
+                      'github_id', 'photo_url', 'registration_number', 'user_name'
                     ]);
+      allow read: if signedIn() && !isBlocked() && (request.auth.uid == userId || isAdmin());
+      allow update, delete: if isAdmin();
+    }
 
-      allow read: if signedIn()
-                  && !isBlocked()
-                  && (request.auth.uid == userId || isAdmin());
-
+    match /enrollments/{enrollmentId} {
+      allow create: if signedIn()
+                    && !isBlocked()
+                    && request.resource.data.user_id == request.auth.uid
+                    && enrollmentId == request.auth.uid + '__' + request.resource.data.course_id
+                    && request.resource.data.approved == false
+                    && request.resource.data.marks.categories.size() == 0
+                    && request.resource.data.keys().hasOnly([
+                      'user_id', 'course_id', 'course_name', 'course_code',
+                      'section', 'approved', 'created_at', 'marks'
+                    ]);
+      allow read: if signedIn() && !isBlocked() && (resource.data.user_id == request.auth.uid || isAdmin());
       allow update, delete: if isAdmin();
     }
   }
