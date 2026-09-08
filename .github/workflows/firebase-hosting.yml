@@ -1,0 +1,52 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firebase-hosting-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy live portal
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+
+      - name: Check JavaScript syntax
+        run: |
+          node --input-type=module --check < public/app.js
+          node --input-type=module --check < public/firebase-config.js
+
+      - name: Check Firebase deployment secret
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STUDENTSREPORTCARD_809AE }}
+        run: |
+          if [[ -z "$FIREBASE_SERVICE_ACCOUNT" ]]; then
+            echo "::error::Add the FIREBASE_SERVICE_ACCOUNT_STUDENTSREPORTCARD_809AE repository secret, then rerun this workflow. See README.md for setup instructions."
+            exit 1
+          fi
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@500ac625ca2dd40cbd15f7659af953801858032a # v0
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STUDENTSREPORTCARD_809AE }}
+          projectId: studentsreportcard-809ae
+          channelId: live

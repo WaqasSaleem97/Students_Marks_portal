@@ -275,6 +275,28 @@ Stop the server with `Ctrl+C`.
 
 ## 10. Deploy to Firebase Hosting
 
+### Automatic deployment with GitHub Actions
+
+The [Deploy to Firebase Hosting workflow](.github/workflows/firebase-hosting.yml) deploys the static files in `public/` to the live Firebase Hosting site for `studentsreportcard-809ae` on every push to `main`. It also supports a manual run from the repository's **Actions** tab. The workflow checks JavaScript syntax before deploying and runs one production deployment at a time.
+
+Set up this repository secret once:
+
+| GitHub repository secret | Value |
+| --- | --- |
+| `FIREBASE_SERVICE_ACCOUNT_STUDENTSREPORTCARD_809AE` | The complete JSON key for a deployment service account in project `studentsreportcard-809ae`. |
+
+1. Open [Google Cloud service accounts for this project](https://console.cloud.google.com/iam-admin/serviceaccounts?project=studentsreportcard-809ae) and create a service account named `github-firebase-deploy`.
+2. Grant it these project roles: **Firebase Hosting Admin** (`roles/firebasehosting.admin`) and **API Keys Viewer** (`roles/serviceusage.apiKeysViewer`). These cover the live static Hosting deployment used here; Firebase's [service-account guide](https://github.com/FirebaseExtended/action-hosting-deploy/blob/main/docs/service-account.md) lists extra roles for preview authentication domains or Cloud Run rewrites.
+3. Open the new service account, choose **Keys > Add key > Create new key > JSON**, and download the key. See Google's [key creation instructions](https://docs.cloud.google.com/iam/docs/keys-create-delete).
+4. Open this repository's [Actions secrets settings](https://github.com/WaqasSaleem97/Students_Marks_portal/settings/secrets/actions), choose **New repository secret**, enter the exact secret name above, and paste the entire downloaded JSON file into the secret value. Save it directly in GitHub; keep the key out of repository files and chat messages.
+5. Open [Actions > Deploy to Firebase Hosting](https://github.com/WaqasSaleem97/Students_Marks_portal/actions/workflows/firebase-hosting.yml), choose **Run workflow**, select `main`, and run it once. Adding a secret does not start a deployment by itself. Subsequent pushes to `main` trigger deployment automatically.
+
+The first workflow run will stop with a setup message if the secret is missing. After adding the secret, start a new manual run. A successful deployment publishes to [the live portal](https://studentsreportcard-809ae.web.app).
+
+This workflow deploys Firebase Hosting only. Deploy Firestore rules or indexes separately with the Firebase CLI when changing them. Firebase documents its GitHub Actions integration [here](https://firebase.google.com/docs/hosting/github-integration).
+
+### Manual deployment
+
 Deploy the website and Firestore rules:
 
 ```bash
@@ -287,7 +309,7 @@ Firebase prints a Hosting URL similar to:
 https://YOUR_PROJECT_ID.web.app
 ```
 
-Whenever you change only HTML, CSS, or JavaScript, deploy Hosting again:
+To publish local HTML, CSS, or JavaScript changes manually, deploy Hosting again:
 
 ```bash
 firebase deploy --only hosting
@@ -406,7 +428,7 @@ git commit -m "Configure Firebase student marks portal"
 git push origin main
 ```
 
-Pushing code to GitHub does not deploy it to Firebase. Run `firebase deploy` whenever you want to publish the website.
+After the deployment secret is configured, every push to `main` automatically deploys the website through GitHub Actions. Follow the setup in [section 10](#10-deploy-to-firebase-hosting) to add the secret and start the first deployment.
 
 ## Security notes
 
