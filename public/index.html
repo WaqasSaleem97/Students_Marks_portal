@@ -52,9 +52,9 @@
     <header class="dashboard-header"><div><p class="eyebrow">Administration</p><h1>Courses, Students and Marks</h1></div><button class="secondary logout signout-button">Sign out</button></header>
 
     <section class="course-admin-card">
-      <div class="section-heading"><div><p class="eyebrow">Course management</p><h2>Create Course</h2></div></div>
-      <form id="course-form" class="course-form"><label>Course name<input id="course-name" placeholder="Cloud Computing" required></label><label>Course code<input id="course-code" placeholder="CC" required></label><label>Sections<input id="course-sections" placeholder="A, B" required></label><button type="submit">Create course</button></form>
-      <p id="course-message" class="message"></p><div id="course-list" class="course-chips"></div>
+      <div class="section-heading"><div><p class="eyebrow">Course management</p><h2 id="course-form-title">Create Course</h2></div></div>
+      <form id="course-form" class="course-form"><label>Course name<input id="course-name" placeholder="Cloud Computing" required></label><label>Course code<input id="course-code" placeholder="CC" required></label><label>Sections<input id="course-sections" placeholder="A, B" required></label><div class="course-form-actions"><button id="course-submit" type="submit">Create course</button><button id="course-cancel" class="small secondary" type="button" hidden>Cancel</button></div></form>
+      <p id="course-message" class="message" aria-live="polite"></p><div id="course-list" class="course-chips"></div>
     </section>
 
     <section class="admin-grid">

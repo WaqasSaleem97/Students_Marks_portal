@@ -40,6 +40,7 @@ button:disabled { opacity: .6; cursor: wait; }
 dt { color: #667085; font-size: 13px; }
 dd { margin: 4px 0 0; overflow-wrap: anywhere; font-weight: 650; }
 .message { min-height: 24px; margin: 18px 0 0; color: #b42318; }
+.message.success { color: #087a55; }
 .marks-card { margin-top: 24px; padding: 28px; }
 .enrollment-toolbar { display: flex; justify-content: flex-end; margin-bottom: 20px; padding-bottom: 18px; border-bottom: 1px solid #e8ecf2; }
 .tabs { display: flex; gap: 8px; margin: 0 0 18px; padding-bottom: 4px; overflow-x: auto; }
@@ -69,9 +70,13 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .admin-grid { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 22px; align-items: start; }
 .course-admin-card { margin-bottom: 24px; padding: 24px; background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); }
 .course-form { display: grid; grid-template-columns: 1.5fr .7fr 1fr auto; gap: 14px; align-items: end; }
-.course-form button { width: auto; }
+.course-form-actions { display: flex; align-items: center; gap: 8px; }
+.course-form-actions button { width: auto; }
 .course-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.course-chip { padding: 8px 11px; background: #eaf0ff; color: #24469b; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.course-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 7px 6px 11px; background: #eaf0ff; color: #24469b; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.course-chip-label { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
+.course-edit-button { flex-shrink: 0; width: auto; padding: 4px 8px; border: 1px solid #9bb2ef; border-radius: 999px; background: #fff; color: #24469b; font-size: 11px; }
+.course-edit-button:hover { background: #24469b; color: #fff; }
 .users-card, .editor-card { background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); padding: 22px; }
 .users-card { position: sticky; top: 20px; }
 .users-card .section-heading { margin-bottom: 12px; }

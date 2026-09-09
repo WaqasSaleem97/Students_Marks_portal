@@ -13,6 +13,7 @@ Students sign in using GitHub, submit their registration number, and wait for ad
 - Separate student and administrator dashboards
 - Any number of assessment categories, such as Quiz, Assignment, Midterm, Final, Lab, Project, or Presentation
 - Any number of marks entries inside each category
+- Administrators can edit course names, codes, and sections while keeping existing enrollment records linked to the same course
 - Category tabs and category totals for students
 - Category-wise and overall reports for administrators
 - CSV report downloads

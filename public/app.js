@@ -23,6 +23,8 @@ let myEnrollments = [];
 let selectedEnrollmentId = null;
 let userListMode = "users";
 let addingAnotherCourse = false;
+let editingCourseId = null;
+let savingCourse = false;
 let currentReport = [];
 let currentReportColumns = [];
 let currentReportTitle = "student-report";
@@ -34,6 +36,7 @@ let unsubscribeMyEnrollments = null;
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 function enrollmentId(uid, courseId) { return `${uid}__${courseId}`; }
+function courseIdForCode(code) { return code.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""); }
 function courseById(id) { return courses.find((course) => course.id === id); }
 function profileById(id) { return users.find((user) => user.id === id); }
 function displayName(profile = {}) { return [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.user_name || "Student"; }
@@ -61,6 +64,9 @@ function startCoursesListener() {
   unsubscribeCourses = onSnapshot(collection(db, "courses"), (snapshot) => {
     courses = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).sort((a, b) => a.name.localeCompare(b.name));
     populateCourseControls(); renderCourseList(); refreshReportCategories();
+    const selected = enrollments.find((item) => item.id === selectedEnrollmentId);
+    if (selected) populateEditorCourse(selected, el("editor-section").value);
+    if (!el("report-table").hidden) generateReport();
   });
 }
 
@@ -179,16 +185,60 @@ function startAdminListeners() {
   unsubscribeEnrollments = onSnapshot(collection(db, "enrollments"), (snapshot) => { enrollments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); refreshReportCategories(); if (!el("report-table").hidden) generateReport(); });
 }
 
+function setCourseMessage(message, success = false) { el("course-message").className = success ? "message success" : "message"; el("course-message").textContent = message; }
+function setCourseSaving(saving) {
+  savingCourse = saving; el("course-form").setAttribute("aria-busy", String(saving));
+  document.querySelectorAll("#course-form input, #course-form button, .course-edit-button").forEach((control) => { control.disabled = saving; });
+}
+function resetCourseForm() {
+  editingCourseId = null; el("course-form").reset(); el("course-form-title").textContent = "Create Course"; el("course-submit").textContent = "Create course"; el("course-cancel").hidden = true;
+}
+function beginCourseEdit(course) {
+  if (savingCourse) return;
+  editingCourseId = course.id; el("course-form-title").textContent = "Edit Course"; el("course-submit").textContent = "Save changes"; el("course-cancel").hidden = false;
+  el("course-name").value = course.name || ""; el("course-code").value = course.code || ""; el("course-sections").value = (course.sections || []).join(", "); setCourseMessage(""); el("course-name").focus();
+}
 function renderCourseList() {
-  const container = el("course-list"); if (!container) return; container.replaceChildren(); courses.forEach((course) => { const chip = document.createElement("span"); chip.className = "course-chip"; chip.textContent = `${course.code}: ${course.name} (${(course.sections || []).join(", ")})`; container.append(chip); });
+  const container = el("course-list"); if (!container) return; container.replaceChildren();
+  courses.forEach((course) => {
+    const chip = document.createElement("div"); chip.className = "course-chip";
+    const label = document.createElement("span"); label.className = "course-chip-label"; label.textContent = `${course.code}: ${course.name} (${(course.sections || []).join(", ")})`;
+    const edit = document.createElement("button"); edit.type = "button"; edit.className = "course-edit-button"; edit.textContent = "Edit"; edit.disabled = savingCourse; edit.title = `Edit ${course.code || "course"}`; edit.setAttribute("aria-label", `Edit ${course.code || "course"}`); edit.addEventListener("click", () => beginCourseEdit(course));
+    chip.append(label, edit); container.append(chip);
+  });
+}
+async function updateCourseAndEnrollments(course, name, code, sections) {
+  const snapshot = await getDocs(query(collection(db, "enrollments"), where("course_id", "==", course.id)));
+  const related = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+  const removedSections = [...new Set(related.map((item) => item.section).filter((section) => section && !sections.includes(section)))];
+  if (removedSections.length) throw new Error(`Sections ${removedSections.join(", ")} still have enrolled students. Move those students to another section before removing these sections.`);
+  const courseRef = doc(db, "courses", course.id);
+  const firstBatch = writeBatch(db);
+  firstBatch.update(courseRef, { name, code, sections, updated_at: serverTimestamp() });
+  related.slice(0, 499).forEach((enrollment) => firstBatch.update(doc(db, "enrollments", enrollment.id), { course_name: name, course_code: code, updated_at: serverTimestamp() }));
+  await firstBatch.commit();
+  for (let start = 499; start < related.length; start += 500) {
+    const batch = writeBatch(db);
+    related.slice(start, start + 500).forEach((enrollment) => batch.update(doc(db, "enrollments", enrollment.id), { course_name: name, course_code: code, updated_at: serverTimestamp() }));
+    await batch.commit();
+  }
 }
 
 el("course-form").addEventListener("submit", async (event) => {
-  event.preventDefault(); const name = el("course-name").value.trim(); const code = el("course-code").value.trim().toUpperCase(); const sections = [...new Set(el("course-sections").value.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean))]; const id = code.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  if (!name || !code || !sections.length) return;
-  try { await setDoc(doc(db, "courses", id), { name, code, sections, active: true, created_at: serverTimestamp() }); el("course-form").reset(); el("course-message").className = "message success"; el("course-message").textContent = "Course created."; }
-  catch (error) { el("course-message").className = "message"; el("course-message").textContent = friendlyError(error); }
+  event.preventDefault(); if (savingCourse) return; const name = el("course-name").value.trim(); const code = el("course-code").value.trim().toUpperCase(); const sections = [...new Set(el("course-sections").value.split(",").map((item) => item.trim().toUpperCase()).filter(Boolean))]; const id = courseIdForCode(code); const wasEditing = Boolean(editingCourseId);
+  if (!name || !code || !sections.length || !id) { setCourseMessage("Enter a course name, code, and at least one section."); return; }
+  const duplicate = courses.find((course) => course.id !== editingCourseId && String(course.code || "").trim().toUpperCase() === code);
+  if (duplicate) { setCourseMessage(`Course code ${code} is already used by ${duplicate.name}.`); return; }
+  const course = editingCourseId ? courseById(editingCourseId) : null;
+  if (wasEditing && !course) { resetCourseForm(); setCourseMessage("The course no longer exists. Refresh the page and try again."); return; }
+  setCourseSaving(true);
+  try {
+    if (course) { await updateCourseAndEnrollments(course, name, code, sections); resetCourseForm(); setCourseMessage("Course updated and existing enrollments synchronized.", true); }
+    else { if (courseById(id)) { setCourseMessage(`Course code ${code} already exists. Use its Edit button to change it.`); return; } await setDoc(doc(db, "courses", id), { name, code, sections, active: true, created_at: serverTimestamp() }); resetCourseForm(); setCourseMessage("Course created.", true); }
+  } catch (error) { setCourseMessage(friendlyError(error)); }
+  finally { setCourseSaving(false); }
 });
+el("course-cancel").addEventListener("click", () => { resetCourseForm(); setCourseMessage(""); });
 
 function filteredEnrollments() {
   const courseFilter = el("admin-course-filter").value; const search = el("user-search").value.toLowerCase();
@@ -219,7 +269,13 @@ async function deleteUserAndEnrollments(event, userId, block) {
 }
 
 function clearEditor() { selectedEnrollmentId = null; el("student-editor").hidden = true; el("no-user-selected").hidden = false; }
-function selectEnrollment(id) { selectedEnrollmentId = id; const enrollment = enrollments.find((item) => item.id === id); const profile = profileById(enrollment.user_id) || {}; const course = courseById(enrollment.course_id); el("no-user-selected").hidden = true; el("student-editor").hidden = false; el("editor-name").textContent = displayName(profile); el("editor-identity").textContent = `${profile.registration_number || ""} · ${profile.email || ""} · ${profile.user_name || ""}`; el("editor-course").value = `${enrollment.course_code} — ${enrollment.course_name}`; el("editor-section").replaceChildren(); (course?.sections || []).forEach((section) => el("editor-section").add(new Option(`Section ${section}`, section))); el("editor-section").value = enrollment.section; el("editor-approved").value = String(Boolean(enrollment.approved)); el("editor-status").textContent = enrollment.approved ? "Approved" : "Pending"; el("editor-status").classList.toggle("published", enrollment.approved); el("category-editor").replaceChildren(); markCategories(enrollment.marks).forEach(addCategory); renderEnrollmentList(); }
+function populateEditorCourse(enrollment, selectedSection = enrollment.section) {
+  const course = courseById(enrollment.course_id); const sections = [...new Set([...(course?.sections || []), enrollment.section].filter(Boolean))];
+  el("editor-course").value = `${course?.code || enrollment.course_code} — ${course?.name || enrollment.course_name}`;
+  el("editor-section").replaceChildren(); sections.forEach((section) => el("editor-section").add(new Option(`Section ${section}`, section)));
+  el("editor-section").value = sections.includes(selectedSection) ? selectedSection : enrollment.section;
+}
+function selectEnrollment(id) { selectedEnrollmentId = id; const enrollment = enrollments.find((item) => item.id === id); const profile = profileById(enrollment.user_id) || {}; el("no-user-selected").hidden = true; el("student-editor").hidden = false; el("editor-name").textContent = displayName(profile); el("editor-identity").textContent = `${profile.registration_number || ""} · ${profile.email || ""} · ${profile.user_name || ""}`; populateEditorCourse(enrollment); el("editor-approved").value = String(Boolean(enrollment.approved)); el("editor-status").textContent = enrollment.approved ? "Approved" : "Pending"; el("editor-status").classList.toggle("published", enrollment.approved); el("category-editor").replaceChildren(); markCategories(enrollment.marks).forEach(addCategory); renderEnrollmentList(); }
 
 function addMarkRow(container, item = {}) { const row = el("mark-row-template").content.firstElementChild.cloneNode(true); row.querySelector(".mark-name").value = item.name || ""; row.querySelector(".mark-obtained").value = item.obtained ?? ""; row.querySelector(".mark-total").value = item.total ?? ""; row.querySelector(".remove-row").addEventListener("click", () => row.remove()); container.append(row); }
 function addCategory(category = {}) { const block = el("category-template").content.firstElementChild.cloneNode(true); block.querySelector(".category-name").value = category.name || ""; const rows = block.querySelector(".category-rows"); (category.items || []).forEach((item) => addMarkRow(rows, item)); block.querySelector(".add-mark").addEventListener("click", () => addMarkRow(rows)); block.querySelector(".remove-category").addEventListener("click", () => block.remove()); el("category-editor").append(block); }
