@@ -72,7 +72,7 @@ jobs:
           export GOOGLE_APPLICATION_CREDENTIALS="$service_account_file"
           unset FIREBASE_SERVICE_ACCOUNT
           if ! ./node_modules/.bin/firebase deploy --only firestore:rules --project studentsreportcard-809ae --non-interactive; then
-            echo "::error::Firestore rules deployment failed. If the log reports a permission error, grant Firebase Rules Admin (roles/firebaserules.admin) to the deployment service account documented in README.md."
+            echo "::error::Firestore rules deployment failed. If the log reports a permission error, grant Firebase Rules Admin (roles/firebaserules.admin) and Service Usage Viewer (roles/serviceusage.serviceUsageViewer) to the deployment service account documented in README.md."
             exit 1
           fi
 
