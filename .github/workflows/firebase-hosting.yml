@@ -59,6 +59,13 @@ jobs:
             echo "::error::Add the FIREBASE_SERVICE_ACCOUNT_STUDENTSREPORTCARD_809AE repository secret, then rerun this workflow. See README.md for setup instructions."
             exit 1
           fi
+          node <<'NODE'
+          const account = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+          if (typeof account.client_email !== "string" || !account.client_email.endsWith(".iam.gserviceaccount.com")) {
+            throw new Error("The Firebase deployment secret does not contain a valid service-account client_email.");
+          }
+          console.log(`Firebase deployment service account: ${account.client_email}`);
+          NODE
 
       - name: Deploy Firestore rules
         env:
