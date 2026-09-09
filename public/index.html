@@ -20,12 +20,13 @@
     <p id="registration-help">Enter your registration number, course and section. The enrollment requires administrator approval.</p>
     <form id="registration-form">
       <label id="registration-label">Registration number
-        <input id="registration-number" list="registration-numbers" placeholder="For example: 2024-BSE-01" pattern="2024-BSE-(0[1-9]|[1-9][0-9])" required>
+        <input id="registration-number" list="registration-numbers" placeholder="Enter your registration number" maxlength="55" aria-describedby="registration-range-help" autocapitalize="characters" spellcheck="false" required>
       </label>
       <datalist id="registration-numbers"></datalist>
+      <p id="registration-range-help" class="form-help" aria-live="polite">Loading allowed registration numbers…</p>
       <label>Course<select id="registration-course" required><option value="">Select course</option></select></label>
       <label>Section<select id="registration-section" required><option value="">Select section</option></select></label>
-      <button type="submit">Submit enrollment</button>
+      <button id="registration-submit" type="submit" disabled>Submit enrollment</button>
     </form>
     <div class="registration-actions">
       <button id="cancel-enrollment" class="secondary" type="button" hidden>Cancel</button>
@@ -58,12 +59,31 @@
     </section>
 
     <section class="admin-grid">
+      <div class="admin-sidebar">
       <aside class="users-card">
         <div class="section-heading"><h2>Enrollments</h2><button id="refresh-users" class="small secondary">Refresh</button></div>
         <label>Course filter<select id="admin-course-filter"><option value="all">All courses</option></select></label>
         <div class="user-tabs"><button class="user-tab active" data-user-view="users">Users <span id="approved-users-count">0</span></button><button class="user-tab" data-user-view="pending">Pending Users <span id="pending-users-count">0</span></button></div>
         <input id="user-search" type="search" placeholder="Search name or registration"><div id="users-list" class="users-list"></div>
       </aside>
+      <section class="registration-ranges-card" aria-labelledby="registration-ranges-title">
+        <h2 id="registration-ranges-title">Allowed registrations</h2>
+        <p class="form-help">Add a number range for each class. These ranges apply to new student registrations across all courses.</p>
+        <form id="registration-range-form">
+          <label>Class prefix<input id="registration-prefix" placeholder="2022-BSE" maxlength="48" autocapitalize="characters" spellcheck="false" required disabled></label>
+          <div class="registration-range-fields">
+            <label>First number<input id="registration-range-start" type="number" min="1" max="999999" step="1" value="1" required disabled></label>
+            <label>Last number<input id="registration-range-end" type="number" min="1" max="999999" step="1" value="99" required disabled></label>
+          </div>
+          <label>Number digits<select id="registration-range-digits" disabled><option value="1">1 digit (1)</option><option value="2" selected>2 digits (01)</option><option value="3">3 digits (001)</option><option value="4">4 digits (0001)</option><option value="5">5 digits (00001)</option><option value="6">6 digits (000001)</option></select></label>
+          <p id="registration-range-preview" class="form-help" aria-live="polite">Example: 2022-BSE-01 to 2022-BSE-99.</p>
+          <div class="registration-range-actions"><button id="registration-range-submit" type="submit" class="small" disabled>Add allowed class</button><button id="registration-range-cancel" type="button" class="small secondary" hidden>Cancel</button></div>
+        </form>
+        <p id="registration-range-message" class="message" role="status"></p>
+        <div id="registration-range-list" class="registration-range-list"></div>
+        <p class="form-help">Disabling a class stops new registrations. Existing students keep their access. To allow one number, use the same first and last number.</p>
+      </section>
+      </div>
       <section class="editor-card">
         <div id="no-user-selected" class="empty-state"><h2>Select an enrollment</h2><p>Choose a student enrollment to approve or edit course marks.</p></div>
         <form id="student-editor" hidden>

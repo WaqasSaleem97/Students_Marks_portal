@@ -77,8 +77,19 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .course-chip-label { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
 .course-edit-button { flex-shrink: 0; width: auto; padding: 4px 8px; border: 1px solid #9bb2ef; border-radius: 999px; background: #fff; color: #24469b; font-size: 11px; }
 .course-edit-button:hover { background: #24469b; color: #fff; }
-.users-card, .editor-card { background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); padding: 22px; }
-.users-card { position: sticky; top: 20px; }
+.users-card, .editor-card, .registration-ranges-card { background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); padding: 22px; }
+.admin-sidebar { display: grid; gap: 22px; min-width: 0; }
+.registration-ranges-card h2 { margin: 0; font-size: 21px; }
+.form-help { margin: 10px 0 14px; font-size: 12px; text-align: left; overflow-wrap: anywhere; }
+.registration-range-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+.registration-range-fields input { min-width: 0; }
+.registration-range-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.registration-range-list { display: grid; gap: 10px; margin-top: 12px; }
+.registration-range-item { min-width: 0; padding: 12px; background: #f7f9fc; border: 1px solid #e4e9f1; border-radius: 10px; }
+.registration-range-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.registration-range-heading strong { overflow-wrap: anywhere; }
+.registration-range-heading .badge { padding: 4px 7px; font-size: 10px; }
+.registration-range-item p { margin: 8px 0; font-size: 12px; overflow-wrap: anywhere; }
 .users-card .section-heading { margin-bottom: 12px; }
 .user-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 13px; padding: 4px; background: #edf1f6; border-radius: 11px; }
 .user-tab { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; padding: 9px 7px; background: transparent; color: #526071; font-size: 12px; }

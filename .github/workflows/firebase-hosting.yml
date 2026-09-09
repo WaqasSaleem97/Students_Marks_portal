@@ -34,6 +34,22 @@ jobs:
         run: |
           node --input-type=module --check < public/app.js
           node --input-type=module --check < public/firebase-config.js
+          node --input-type=module --check < public/registration-ranges.js
+
+      - name: Install test and deployment tools
+        run: npm ci --no-audit --no-fund
+
+      - name: Set up Java for Firestore tests
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Test registration controls
+        run: npm test
+
+      - name: Test Firestore registration rules
+        run: npm run test:rules
 
       - name: Check Firebase deployment secret
         env:
@@ -41,6 +57,22 @@ jobs:
         run: |
           if [[ -z "$FIREBASE_SERVICE_ACCOUNT" ]]; then
             echo "::error::Add the FIREBASE_SERVICE_ACCOUNT_STUDENTSREPORTCARD_809AE repository secret, then rerun this workflow. See README.md for setup instructions."
+            exit 1
+          fi
+
+      - name: Deploy Firestore rules
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_STUDENTSREPORTCARD_809AE }}
+        run: |
+          set -euo pipefail
+          service_account_file="$RUNNER_TEMP/firebase-rules-service-account.json"
+          trap 'rm -f "$service_account_file"' EXIT
+          umask 077
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$service_account_file"
+          export GOOGLE_APPLICATION_CREDENTIALS="$service_account_file"
+          unset FIREBASE_SERVICE_ACCOUNT
+          if ! ./node_modules/.bin/firebase deploy --only firestore:rules --project studentsreportcard-809ae --non-interactive; then
+            echo "::error::Firestore rules deployment failed. If the log reports a permission error, grant Firebase Rules Admin (roles/firebaserules.admin) to the deployment service account documented in README.md."
             exit 1
           fi
 

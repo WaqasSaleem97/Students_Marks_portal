@@ -9,6 +9,7 @@ Students sign in using GitHub, submit their registration number, and wait for ad
 - GitHub-only signup and sign-in
 - Firebase UID used as each user's Firestore document ID
 - Student registration-number form
+- Administrator-managed registration prefixes and numeric ranges for multiple classes
 - Administrator approval for new accounts
 - Separate student and administrator dashboards
 - Any number of assessment categories, such as Quiz, Assignment, Midterm, Final, Lab, Project, or Presentation
@@ -186,34 +187,21 @@ YOUR_PROJECT_ID.firebaseapp.com
 
 Add your custom domain later if you use one. Enter domain names without `https://`.
 
-## 7. Change the registration-number list
+## 7. Manage allowed registration numbers
 
-The allowed student registration numbers are generated in:
+Sign in as an administrator and use the **Allowed registrations** card below **Enrollments**. Add one range per class prefix; ranges apply across all courses.
 
-```text
-public/app.js
-```
+| Class prefix | First number | Last number | Number digits | Allowed numbers |
+| --- | --- | --- | --- | --- |
+| `2022-BSE` | 1 | 99 | 2 | `2022-BSE-01` through `2022-BSE-99` |
+| `2024-BSCS` | 1 | 150 | 3 | `2024-BSCS-001` through `2024-BSCS-150` |
+| `2025-BSE` | 49 | 49 | 3 | Only `2025-BSE-049` |
 
-Find:
+Click **Add allowed class** to save. Use **Edit** to change a range or its number of digits, and **Disable** / **Enable** to control new registrations for that class. The prefix is fixed while editing; add a separate class for a different prefix. Prefixes may contain letters, numbers, and hyphens. Serial numbers support 1–6 digits and inclusive bounds from 1 to 999999. Students must include the selected number of leading zeros.
 
-```javascript
-const allowedRegistrations = Array.from(
-  { length: 29 },
-  (_, i) => `2022-BSE-${String(49 + i).padStart(3, "0")}`
-);
-```
+Settings are saved in Firestore's `registration_ranges` collection and update live. Until edited or disabled, the original `2024-BSE-01`–`2024-BSE-99` range remains available. Disabled entries stay saved so that this default cannot accidentally reappear. Existing students retain their profiles, marks, and ability to enroll in other courses even if their range is disabled or changed. Enrollment approval is still required.
 
-This generates `2022-BSE-049` through `2022-BSE-077`.
-
-For another class, replace it with your own list:
-
-```javascript
-const allowedRegistrations = [
-  "2025-BSE-001",
-  "2025-BSE-002",
-  "2025-BSE-003"
-];
-```
+Both the form and Firestore rules enforce the ranges for new student profiles. Deploy the updated rules before publishing the new interface; the GitHub Actions workflow does this automatically.
 
 ## 8. Install and configure Firebase CLI
 
@@ -278,7 +266,7 @@ Stop the server with `Ctrl+C`.
 
 ### Automatic deployment with GitHub Actions
 
-The [Deploy to Firebase Hosting workflow](.github/workflows/firebase-hosting.yml) deploys the static files in `public/` to the live Firebase Hosting site for `studentsreportcard-809ae` on every push to `main`. It also supports a manual run from the repository's **Actions** tab. The workflow checks JavaScript syntax before deploying and runs one production deployment at a time.
+The [Deploy to Firebase Hosting workflow](.github/workflows/firebase-hosting.yml) deploys Firestore rules followed by the static files in `public/` to the live Firebase Hosting site for `studentsreportcard-809ae` on every push to `main`. It also supports a manual run from the repository's **Actions** tab. The workflow checks JavaScript syntax, tests registration controls, and tests Firestore rules against a local emulator before deploying. It runs one production deployment at a time.
 
 Set up this repository secret once:
 
@@ -287,14 +275,24 @@ Set up this repository secret once:
 | `FIREBASE_SERVICE_ACCOUNT_STUDENTSREPORTCARD_809AE` | The complete JSON key for a deployment service account in project `studentsreportcard-809ae`. |
 
 1. Open [Google Cloud service accounts for this project](https://console.cloud.google.com/iam-admin/serviceaccounts?project=studentsreportcard-809ae) and create a service account named `github-firebase-deploy`.
-2. Grant it these project roles: **Firebase Hosting Admin** (`roles/firebasehosting.admin`) and **API Keys Viewer** (`roles/serviceusage.apiKeysViewer`). These cover the live static Hosting deployment used here; Firebase's [service-account guide](https://github.com/FirebaseExtended/action-hosting-deploy/blob/main/docs/service-account.md) lists extra roles for preview authentication domains or Cloud Run rewrites.
+2. Grant it these project roles: **Firebase Hosting Admin** (`roles/firebasehosting.admin`), **API Keys Viewer** (`roles/serviceusage.apiKeysViewer`), and **Firebase Rules Admin** (`roles/firebaserules.admin`). The rules role is needed to publish the registration restrictions. Firebase's [service-account guide](https://github.com/FirebaseExtended/action-hosting-deploy/blob/main/docs/service-account.md) lists extra roles for preview authentication domains or Cloud Run rewrites; Google's [Rules permissions reference](https://docs.cloud.google.com/iam/docs/roles-permissions/firebaserules) describes the rules role.
 3. Open the new service account, choose **Keys > Add key > Create new key > JSON**, and download the key. See Google's [key creation instructions](https://docs.cloud.google.com/iam/docs/keys-create-delete).
 4. Open this repository's [Actions secrets settings](https://github.com/WaqasSaleem97/Students_Marks_portal/settings/secrets/actions), choose **New repository secret**, enter the exact secret name above, and paste the entire downloaded JSON file into the secret value. Save it directly in GitHub; keep the key out of repository files and chat messages.
 5. Open [Actions > Deploy to Firebase Hosting](https://github.com/WaqasSaleem97/Students_Marks_portal/actions/workflows/firebase-hosting.yml), choose **Run workflow**, select `main`, and run it once. Adding a secret does not start a deployment by itself. Subsequent pushes to `main` trigger deployment automatically.
 
 The first workflow run will stop with a setup message if the secret is missing. After adding the secret, start a new manual run. A successful deployment publishes to [the live portal](https://studentsreportcard-809ae.web.app).
 
-This workflow deploys Firebase Hosting only. Deploy Firestore rules or indexes separately with the Firebase CLI when changing them. Firebase documents its GitHub Actions integration [here](https://firebase.google.com/docs/hosting/github-integration).
+The workflow deploys Firestore rules before Hosting, so a failed rules deployment prevents publishing an interface that depends on unavailable permissions. Existing deployment service accounts need the additional **Firebase Rules Admin** role; the same GitHub secret can be reused. Firestore indexes still require a separate CLI deployment. Firebase documents its GitHub Actions integration [here](https://firebase.google.com/docs/hosting/github-integration).
+
+Run the checks locally with Node.js 22+ and Java 21+:
+
+```bash
+npm ci
+npm test
+npm run test:rules
+```
+
+The rules tests use the isolated `demo-student-marks` emulator project and do not access production data.
 
 ### Manual deployment
 

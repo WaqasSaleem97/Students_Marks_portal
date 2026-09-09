@@ -2,6 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebas
 import { getAuth, GithubAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
+import { normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -12,7 +13,6 @@ githubProvider.addScope("user:email");
 
 const el = (id) => document.getElementById(id);
 const views = ["loading-view", "login-view", "registration-view", "pending-view", "blocked-view", "student-view", "admin-view"];
-const allowedRegistrations = Array.from({ length: 99 }, (_, i) => `2024-BSE-${String(i + 1).padStart(2, "0")}`);
 
 let currentUser = null;
 let currentProfile = null;
@@ -25,6 +25,10 @@ let userListMode = "users";
 let addingAnotherCourse = false;
 let editingCourseId = null;
 let savingCourse = false;
+let registrationRanges = [];
+let registrationRangesReady = false;
+let editingRegistrationPrefix = null;
+let savingRegistrationRange = false;
 let currentReport = [];
 let currentReportColumns = [];
 let currentReportTitle = "student-report";
@@ -33,6 +37,7 @@ let unsubscribeUsers = null;
 let unsubscribeEnrollments = null;
 let unsubscribeProfile = null;
 let unsubscribeMyEnrollments = null;
+let unsubscribeRegistrationRanges = null;
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 function enrollmentId(uid, courseId) { return `${uid}__${courseId}`; }
@@ -49,7 +54,99 @@ function friendlyError(error) {
   return error?.message || "The operation could not be completed.";
 }
 
-allowedRegistrations.forEach((number) => { const option = document.createElement("option"); option.value = number; el("registration-numbers").append(option); });
+function setRegistrationRangeMessage(message, success = false) {
+  el("registration-range-message").className = success ? "message success" : "message";
+  el("registration-range-message").textContent = message;
+}
+
+function updateRegistrationRangeControls() {
+  document.querySelectorAll("#registration-range-form input, #registration-range-form select, #registration-range-form button, #registration-range-list button").forEach((control) => { control.disabled = !registrationRangesReady || savingRegistrationRange; });
+  el("registration-range-form").setAttribute("aria-busy", String(savingRegistrationRange));
+  el("registration-submit").disabled = !currentProfile && (!registrationRangesReady || !registrationRanges.some((range) => range.active));
+}
+
+function updateRegistrationRangeHelp() {
+  const active = registrationRanges.filter((range) => range.active);
+  const suggestions = el("registration-numbers"); suggestions.replaceChildren();
+  active.forEach((range) => [...new Set([range.start, range.end])].forEach((number) => {
+    const option = document.createElement("option"); option.value = formatRegistration(range, number); suggestions.append(option);
+  }));
+  el("registration-number").placeholder = active.length ? `For example: ${formatRegistration(active[0], active[0].start)}` : "Enter your registration number";
+  el("registration-range-help").textContent = currentProfile ? "Your saved registration number will be used for this enrollment." : !registrationRangesReady ? "Loading allowed registration numbers…" : active.length ? `Allowed: ${active.map(describeRegistrationRange).join("; ")}.` : "New registrations are currently closed. Contact your administrator.";
+  updateRegistrationRangeControls();
+}
+
+function startRegistrationRangesListener() {
+  if (unsubscribeRegistrationRanges) unsubscribeRegistrationRanges();
+  registrationRangesReady = false; updateRegistrationRangeHelp();
+  unsubscribeRegistrationRanges = onSnapshot(collection(db, "registration_ranges"), (snapshot) => {
+    registrationRanges = effectiveRegistrationRanges(snapshot.docs.map((item) => ({ ...item.data(), prefix: item.id })));
+    registrationRangesReady = true; renderRegistrationRanges(); updateRegistrationRangeHelp();
+  }, (error) => {
+    registrationRangesReady = false; registrationRanges = []; renderRegistrationRanges(); updateRegistrationRangeHelp();
+    setRegistrationRangeMessage(`Allowed registrations could not be loaded. ${friendlyError(error)}`);
+    if (!currentProfile) el("registration-range-help").textContent = "Allowed registrations could not be loaded. Refresh the page to try again.";
+  });
+}
+
+function resetRegistrationRangeForm() {
+  editingRegistrationPrefix = null; el("registration-range-form").reset(); el("registration-prefix").readOnly = false;
+  el("registration-range-submit").textContent = "Add allowed class"; el("registration-range-cancel").hidden = true; updateRegistrationRangePreview();
+}
+
+function registrationRangeFromForm() {
+  return { prefix: normalizeRegistration(el("registration-prefix").value), start: Number(el("registration-range-start").value), end: Number(el("registration-range-end").value), digits: Number(el("registration-range-digits").value), active: registrationRanges.find((range) => range.prefix === editingRegistrationPrefix)?.active ?? true };
+}
+
+function updateRegistrationRangePreview() {
+  const range = registrationRangeFromForm();
+  el("registration-range-preview").textContent = validateRegistrationRange(range) ? "Example: prefix 2022-BSE, numbers 1–99, 2 digits → 2022-BSE-01 to 2022-BSE-99." : describeRegistrationRange(range);
+}
+
+function beginRegistrationRangeEdit(range) {
+  if (savingRegistrationRange || !registrationRangesReady) return;
+  editingRegistrationPrefix = range.prefix; el("registration-prefix").value = range.prefix; el("registration-prefix").readOnly = true;
+  el("registration-range-start").value = range.start; el("registration-range-end").value = range.end; el("registration-range-digits").value = range.digits;
+  el("registration-range-submit").textContent = "Save range"; el("registration-range-cancel").hidden = false;
+  setRegistrationRangeMessage(""); updateRegistrationRangePreview(); el("registration-range-start").focus();
+}
+
+function renderRegistrationRanges() {
+  const container = el("registration-range-list"); container.replaceChildren();
+  registrationRanges.forEach((range) => {
+    const row = document.createElement("article"); row.className = "registration-range-item";
+    const title = document.createElement("strong"); title.textContent = range.prefix;
+    const status = document.createElement("span"); status.className = `badge${range.active ? " published" : ""}`; status.textContent = range.active ? "Enabled" : "Disabled";
+    const heading = document.createElement("div"); heading.className = "registration-range-heading"; heading.append(title, status);
+    const description = document.createElement("p"); description.textContent = describeRegistrationRange(range);
+    const actions = document.createElement("div"); actions.className = "registration-range-actions";
+    const edit = document.createElement("button"); edit.type = "button"; edit.className = "small secondary"; edit.textContent = "Edit"; edit.setAttribute("aria-label", `Edit registration range ${range.prefix}`); edit.addEventListener("click", () => beginRegistrationRangeEdit(range));
+    const toggle = document.createElement("button"); toggle.type = "button"; toggle.className = "small secondary"; toggle.textContent = range.active ? "Disable" : "Enable"; toggle.setAttribute("aria-label", `${toggle.textContent} registrations for ${range.prefix}`); toggle.addEventListener("click", () => saveRegistrationRange({ ...range, active: !range.active }));
+    actions.append(edit, toggle); row.append(heading, description, actions); container.append(row);
+  });
+  updateRegistrationRangeControls();
+}
+
+async function saveRegistrationRange(range) {
+  if (savingRegistrationRange || !registrationRangesReady) return;
+  savingRegistrationRange = true; updateRegistrationRangeControls(); setRegistrationRangeMessage("");
+  try {
+    const { prefix, start, end, digits, active } = range;
+    await setDoc(doc(db, "registration_ranges", prefix), { prefix, start, end, digits, active, updated_at: serverTimestamp() });
+    resetRegistrationRangeForm(); setRegistrationRangeMessage(`${prefix} saved. ${active ? "New registrations are allowed in this range." : "New registrations are disabled for this class."}`, true);
+  } catch (error) { setRegistrationRangeMessage(friendlyError(error)); }
+  finally { savingRegistrationRange = false; updateRegistrationRangeControls(); }
+}
+
+el("registration-range-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); if (savingRegistrationRange || !registrationRangesReady) return;
+  const range = registrationRangeFromForm(); const error = validateRegistrationRange(range);
+  if (error) { setRegistrationRangeMessage(error); return; }
+  if (!editingRegistrationPrefix && registrationRanges.some((item) => item.prefix === range.prefix)) { setRegistrationRangeMessage("This class prefix already exists. Use its Edit button to change the range."); return; }
+  await saveRegistrationRange(range);
+});
+el("registration-range-form").addEventListener("input", updateRegistrationRangePreview);
+el("registration-range-cancel").addEventListener("click", () => { resetRegistrationRangeForm(); setRegistrationRangeMessage(""); });
 
 async function getGithubProfile(token) {
   const response = await fetch("https://api.github.com/user", { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" } });
@@ -105,10 +202,10 @@ function updateReportSections() {
 async function routeUser(user) {
   currentUser = user; startCoursesListener();
   const admin = await getDoc(doc(db, "admins", user.uid));
-  if (admin.exists()) { showView("admin-view"); startAdminListeners(); return; }
+  if (admin.exists()) { showView("admin-view"); startAdminListeners(); startRegistrationRangesListener(); return; }
   const blocked = await getDoc(doc(db, "blocked_users", user.uid));
   if (blocked.exists()) { showView("blocked-view"); return; }
-  startStudentListeners(user);
+  startRegistrationRangesListener(); startStudentListeners(user);
 }
 
 function startStudentListeners(user) {
@@ -134,14 +231,16 @@ function openEnrollmentForm(additional) {
   addingAnotherCourse = additional; el("registration-title").textContent = additional ? "Enroll in another course" : "Complete registration";
   el("registration-help").textContent = additional ? "Select another course and section. The new enrollment requires approval." : "Enter your registration number, course and section. The enrollment requires approval.";
   el("registration-number").value = currentProfile?.registration_number || ""; el("registration-number").readOnly = Boolean(currentProfile);
+  updateRegistrationRangeHelp();
   el("cancel-enrollment").hidden = !additional; el("registration-message").textContent = ""; populateCourseControls();
   const existing = new Set(myEnrollments.map((item) => item.course_id)); [...el("registration-course").options].forEach((option) => { if (existing.has(option.value)) option.disabled = true; });
   showView("registration-view");
 }
 
 el("registration-form").addEventListener("submit", async (event) => {
-  event.preventDefault(); const registration = el("registration-number").value.trim().toUpperCase(); const courseId = el("registration-course").value; const section = el("registration-section").value; const course = courseById(courseId);
-  if (!allowedRegistrations.includes(registration)) { el("registration-message").textContent = "Enter a registration number from 2024-BSE-01 through 2024-BSE-99."; return; }
+  event.preventDefault(); const registration = currentProfile?.registration_number || normalizeRegistration(el("registration-number").value); const courseId = el("registration-course").value; const section = el("registration-section").value; const course = courseById(courseId);
+  if (!currentProfile && !registrationRangesReady) { el("registration-message").textContent = "Wait for the allowed registration numbers to load, then try again."; return; }
+  if (!currentProfile && !isRegistrationAllowed(registration, registrationRanges)) { el("registration-message").textContent = "Enter a registration number in an enabled range shown above, including the required leading zeros. Contact your administrator if your class is missing."; return; }
   if (!course || !section) { el("registration-message").textContent = "Select a valid course and section."; return; }
   if (myEnrollments.some((item) => item.course_id === courseId)) { el("registration-message").textContent = "You already have an enrollment for this course."; return; }
   try {
@@ -308,7 +407,7 @@ function parseCsv(text) { const rows = []; let row = [], field = "", quoted = fa
 async function uploadMarksCsv() { const file = el("marks-csv").files[0]; if (!file) return; el("upload-marks").disabled = true; try { const rows = parseCsv((await file.text()).replace(/^\uFEFF/, "")); const headers = rows[0] || []; if (headers[0] !== "Registration Number" || headers[2] !== "Section") throw new Error("Use a template downloaded from this course report."); const definitions = headers.slice(3).map((header) => { const match = header.match(/^(.*?) :: (.*?) \[Max:([0-9.]+)\]$/); if (!match) throw new Error(`Invalid column: ${header}`); return { category: match[1], name: match[2], total: Number(match[3]) }; }); const scoped = approvedReportEnrollments(); const updates = rows.slice(1).map((row, index) => { const registration = String(row[0]).trim().toUpperCase(), section = String(row[2]).trim().toUpperCase(); const enrollment = scoped.find((item) => profileById(item.user_id)?.registration_number === registration && item.section === section); if (!enrollment) throw new Error(`Row ${index + 2}: no approved matching enrollment.`); const values = definitions.map((definition, itemIndex) => { const obtained = Number(row[itemIndex + 3]); if (!Number.isFinite(obtained) || obtained < 0 || obtained > definition.total) throw new Error(`Row ${index + 2}: ${definition.name} must be 0-${definition.total}.`); return { ...definition, obtained }; }); return { enrollment, values }; }); const batch = writeBatch(db); updates.forEach(({ enrollment, values }) => { const uploadedCategories = new Set(values.map((value) => value.category.toLowerCase())); const categories = markCategories(enrollment.marks).filter((category) => !uploadedCategories.has(category.name.toLowerCase())); const grouped = new Map(); values.forEach((value) => { const key = value.category.toLowerCase(); if (!grouped.has(key)) grouped.set(key, { name: value.category, items: [] }); grouped.get(key).items.push({ name: value.name, obtained: value.obtained, total: value.total }); }); categories.push(...grouped.values()); batch.update(doc(db, "enrollments", enrollment.id), { marks: { categories }, updated_at: serverTimestamp() }); }); await batch.commit(); el("csv-message").className = "message success"; el("csv-message").textContent = `${updates.length} enrollments updated.`; el("marks-csv").value = ""; }
   catch (error) { el("csv-message").className = "message"; el("csv-message").textContent = friendlyError(error); } finally { el("upload-marks").disabled = !el("marks-csv").files.length; } }
 
-function stopListeners() { ["unsubscribeCourses", "unsubscribeUsers", "unsubscribeEnrollments", "unsubscribeProfile", "unsubscribeMyEnrollments"].forEach((name) => { const fn = ({ unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribeProfile, unsubscribeMyEnrollments })[name]; if (fn) fn(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribeProfile = unsubscribeMyEnrollments = null; }
+function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = null; registrationRanges = []; registrationRangesReady = false; resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
 
 el("github-login").addEventListener("click", async () => { try { const result = await signInWithPopup(auth, githubProvider); const credential = GithubAuthProvider.credentialFromResult(result); sessionStorage.setItem("githubProfile", JSON.stringify(await getGithubProfile(credential.accessToken))); await routeUser(result.user); } catch (error) { el("login-message").textContent = friendlyError(error); } });
 el("registration-course").addEventListener("change", updateRegistrationSections); el("report-course").addEventListener("change", updateReportSections); el("report-type").addEventListener("change", () => { el("report-category-label").hidden = el("report-type").value !== "category"; }); el("admin-course-filter").addEventListener("change", renderEnrollmentList); el("user-search").addEventListener("input", renderEnrollmentList);
@@ -316,4 +415,4 @@ el("cancel-enrollment").addEventListener("click", () => { addingAnotherCourse = 
 el("add-category").addEventListener("click", () => addCategory()); document.querySelectorAll(".user-tab").forEach((button) => button.addEventListener("click", () => { userListMode = button.dataset.userView; document.querySelectorAll(".user-tab").forEach((tab) => tab.classList.toggle("active", tab === button)); renderEnrollmentList(); }));
 el("refresh-users").addEventListener("click", renderEnrollmentList); el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
 
-onAuthStateChanged(auth, async (user) => { stopListeners(); currentProfile = null; myEnrollments = []; addingAnotherCourse = false; if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("login-message").textContent = friendlyError(error); showView("login-view"); } });
+onAuthStateChanged(auth, async (user) => { currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("login-message").textContent = friendlyError(error); showView("login-view"); } });

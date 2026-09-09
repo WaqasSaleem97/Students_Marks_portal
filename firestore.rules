@@ -6,6 +6,47 @@ service cloud.firestore {
     function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
     function isBlocked() { return signedIn() && exists(/databases/$(database)/documents/blocked_users/$(request.auth.uid)); }
 
+    function validRegistrationRange(prefix, range) {
+      return range.keys().hasOnly(['prefix', 'start', 'end', 'digits', 'active', 'updated_at'])
+             && range.prefix == prefix && prefix.size() <= 48
+             && prefix.matches('[A-Z0-9]+(-[A-Z0-9]+)*')
+             && range.start is int && range.end is int && range.digits is int
+             && range.start >= 1 && range.end >= range.start && range.end <= 999999
+             && range.digits >= 1 && range.digits <= 6
+             && ((range.digits == 1 && range.end <= 9)
+                 || (range.digits == 2 && range.end <= 99)
+                 || (range.digits == 3 && range.end <= 999)
+                 || (range.digits == 4 && range.end <= 9999)
+                 || (range.digits == 5 && range.end <= 99999)
+                 || (range.digits == 6 && range.end <= 999999))
+             && range.active is bool && range.updated_at == request.time;
+    }
+
+    function registrationInRange(registration) {
+      let parts = registration.split('-');
+      let serial = parts[parts.size() - 1];
+      let prefix = registration.replace('-[0-9]+$', '');
+      let rangePath = /databases/$(database)/documents/registration_ranges/$(prefix);
+      let savedRange = exists(rangePath);
+      // Keep the previous class available until its range is edited or disabled.
+      return prefix.size() <= 48
+             && ((savedRange && registrationMatchesSavedRange(serial, rangePath))
+                 || (!savedRange && prefix == '2024-BSE'
+                     && serial.size() == 2 && int(serial) >= 1 && int(serial) <= 99));
+    }
+
+    function registrationMatchesSavedRange(serial, rangePath) {
+      let range = get(rangePath).data;
+      return range.active == true && serial.size() == range.digits
+             && int(serial) >= range.start && int(serial) <= range.end;
+    }
+
+    function allowedRegistration(registration) {
+      return registration is string && registration.size() <= 55
+             && registration.matches('[A-Z0-9]+(-[A-Z0-9]+)*-[0-9]{1,6}')
+             && registrationInRange(registration);
+    }
+
     match /admins/{adminId} {
       allow read: if signedIn() && request.auth.uid == adminId;
       allow write: if false;
@@ -21,10 +62,18 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    match /registration_ranges/{prefix} {
+      allow read: if signedIn() && !isBlocked();
+      allow create, update: if isAdmin() && validRegistrationRange(prefix, request.resource.data);
+      // Disable a range instead of deleting it, so the legacy default cannot reappear.
+      allow delete: if false;
+    }
+
     match /users/{userId} {
       allow create: if signedIn()
                     && request.auth.uid == userId
                     && !isBlocked()
+                    && allowedRegistration(request.resource.data.registration_number)
                     && request.resource.data.keys().hasOnly([
                       'first_name', 'last_name', 'created_at', 'email',
                       'github_id', 'photo_url', 'registration_number', 'user_name'
@@ -37,6 +86,9 @@ service cloud.firestore {
       allow create: if signedIn()
                     && !isBlocked()
                     && request.resource.data.user_id == request.auth.uid
+                    // An existing profile stays eligible when its class is disabled.
+                    // New profiles must pass allowedRegistration in the same batch.
+                    && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.registration_number is string
                     && enrollmentId == request.auth.uid + '__' + request.resource.data.course_id
                     && request.resource.data.approved == false
                     && request.resource.data.marks.categories.size() == 0
