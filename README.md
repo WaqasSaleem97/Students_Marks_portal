@@ -12,6 +12,7 @@ Students sign in using GitHub, submit their registration number, and wait for ad
 - Administrator-managed registration prefixes and numeric ranges for multiple classes
 - Administrator approval for new accounts
 - Separate student and administrator dashboards
+- Three focused administrator tabs for courses and registrations, students and marks, and reports
 - Any number of assessment categories, such as Quiz, Assignment, Midterm, Final, Lab, Project, or Presentation
 - Any number of marks entries inside each category
 - Administrators can edit course names, codes, and sections while keeping existing enrollment records linked to the same course

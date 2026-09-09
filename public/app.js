@@ -40,6 +40,33 @@ let unsubscribeMyEnrollments = null;
 let unsubscribeRegistrationRanges = null;
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
+const adminTabs = [...document.querySelectorAll(".admin-tab")];
+
+function activateAdminPanel(panelId, focusTab = false) {
+  adminTabs.forEach((tab) => {
+    const isActive = tab.dataset.adminPanel === panelId;
+    tab.classList.toggle("active", isActive);
+    tab.setAttribute("aria-selected", String(isActive));
+    tab.tabIndex = isActive ? 0 : -1;
+    if (isActive && focusTab) tab.focus();
+  });
+  document.querySelectorAll(".admin-tab-panel").forEach((panel) => { panel.hidden = panel.id !== panelId; });
+}
+
+adminTabs.forEach((tab, index) => {
+  tab.addEventListener("click", () => activateAdminPanel(tab.dataset.adminPanel));
+  tab.addEventListener("keydown", (event) => {
+    let targetIndex = null;
+    if (event.key === "ArrowRight") targetIndex = (index + 1) % adminTabs.length;
+    if (event.key === "ArrowLeft") targetIndex = (index - 1 + adminTabs.length) % adminTabs.length;
+    if (event.key === "Home") targetIndex = 0;
+    if (event.key === "End") targetIndex = adminTabs.length - 1;
+    if (targetIndex === null) return;
+    event.preventDefault();
+    activateAdminPanel(adminTabs[targetIndex].dataset.adminPanel, true);
+  });
+});
+
 function enrollmentId(uid, courseId) { return `${uid}__${courseId}`; }
 function courseIdForCode(code) { return code.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""); }
 function courseById(id) { return courses.find((course) => course.id === id); }

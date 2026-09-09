@@ -38,10 +38,42 @@ function fixture(saved = []) {
   return {window, el, writes, data, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
 }
 
-test("card is below Enrollments; add, edit, disable, enable and cancel work", async () => {
+test("admin areas are separated into three accessible tabs", async () => {
   const f = fixture();
   try {
-    assert.equal(f.window.document.querySelector(".users-card").nextElementSibling.className, "registration-ranges-card");
+    const management = f.el("admin-panel-management");
+    const students = f.el("admin-panel-students");
+    const reports = f.el("admin-panel-reports");
+    assert.equal(management.hidden, false);
+    assert.equal(students.hidden, true);
+    assert.equal(reports.hidden, true);
+    assert.equal(management.contains(f.window.document.querySelector(".course-admin-card")), true);
+    assert.equal(management.contains(f.window.document.querySelector(".registration-ranges-card")), true);
+    assert.equal(students.contains(f.window.document.querySelector(".users-card")), true);
+    assert.equal(students.contains(f.window.document.querySelector(".editor-card")), true);
+    assert.equal(reports.contains(f.window.document.querySelector(".report-card")), true);
+
+    f.el("admin-tab-students").click();
+    assert.equal(management.hidden, true);
+    assert.equal(students.hidden, false);
+    assert.equal(f.el("admin-tab-students").getAttribute("aria-selected"), "true");
+
+    f.el("admin-tab-students").dispatchEvent(new f.window.KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true}));
+    assert.equal(students.hidden, true);
+    assert.equal(reports.hidden, false);
+    assert.equal(f.window.document.activeElement, f.el("admin-tab-reports"));
+
+    f.el("admin-tab-reports").dispatchEvent(new f.window.KeyboardEvent("keydown", {key: "Home", bubbles: true}));
+    assert.equal(management.hidden, false);
+    assert.equal(reports.hidden, true);
+    assert.equal(f.window.document.activeElement, f.el("admin-tab-management"));
+  } finally {await f.close();}
+});
+
+test("registration controls add, edit, disable, enable and cancel a class range", async () => {
+  const f = fixture();
+  try {
+    assert.equal(f.el("admin-panel-management").contains(f.window.document.querySelector(".registration-ranges-card")), true);
     assert.equal(f.el("registration-number").hasAttribute("pattern"), false);
     f.start(); f.fillRange("2022-bse", "1", "99", "2"); await f.submit("registration-range-form");
     assert.equal(f.data.get("2022-BSE").digits, 2);

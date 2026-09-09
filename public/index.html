@@ -52,30 +52,29 @@
   <main id="admin-view" class="dashboard" hidden>
     <header class="dashboard-header"><div><p class="eyebrow">Administration</p><h1>Courses, Students and Marks</h1></div><button class="secondary logout signout-button">Sign out</button></header>
 
-    <section class="course-admin-card">
-      <div class="section-heading"><div><p class="eyebrow">Course management</p><h2 id="course-form-title">Create Course</h2></div></div>
-      <form id="course-form" class="course-form"><label>Course name<input id="course-name" placeholder="Cloud Computing" required></label><label>Course code<input id="course-code" placeholder="CC" required></label><label>Sections<input id="course-sections" placeholder="A, B" required></label><div class="course-form-actions"><button id="course-submit" type="submit">Create course</button><button id="course-cancel" class="small secondary" type="button" hidden>Cancel</button></div></form>
-      <p id="course-message" class="message" aria-live="polite"></p><div id="course-list" class="course-chips"></div>
-    </section>
+    <nav class="admin-tabs" role="tablist" aria-label="Administration pages">
+      <button id="admin-tab-management" class="admin-tab active" type="button" role="tab" aria-selected="true" aria-controls="admin-panel-management" data-admin-panel="admin-panel-management"><span class="admin-tab-number" aria-hidden="true">1</span>Courses &amp; Registrations</button>
+      <button id="admin-tab-students" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-students" data-admin-panel="admin-panel-students" tabindex="-1"><span class="admin-tab-number" aria-hidden="true">2</span>Students &amp; Marks</button>
+      <button id="admin-tab-reports" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-reports" data-admin-panel="admin-panel-reports" tabindex="-1"><span class="admin-tab-number" aria-hidden="true">3</span>Reports</button>
+    </nav>
 
-    <section class="admin-grid">
-      <div class="admin-sidebar">
-      <aside class="users-card">
-        <div class="section-heading"><h2>Enrollments</h2><button id="refresh-users" class="small secondary">Refresh</button></div>
-        <label>Course filter<select id="admin-course-filter"><option value="all">All courses</option></select></label>
-        <div class="user-tabs"><button class="user-tab active" data-user-view="users">Users <span id="approved-users-count">0</span></button><button class="user-tab" data-user-view="pending">Pending Users <span id="pending-users-count">0</span></button></div>
-        <input id="user-search" type="search" placeholder="Search name or registration"><div id="users-list" class="users-list"></div>
-      </aside>
+    <section id="admin-panel-management" class="admin-tab-panel admin-management-panel" role="tabpanel" aria-labelledby="admin-tab-management" tabindex="0">
+      <section class="course-admin-card">
+        <div class="section-heading"><div><p class="eyebrow">Course management</p><h2 id="course-form-title">Create Course</h2></div></div>
+        <form id="course-form" class="course-form"><label>Course name<input id="course-name" placeholder="Cloud Computing" required></label><label>Course code<input id="course-code" placeholder="CC" required></label><label>Sections<input id="course-sections" placeholder="A, B" required></label><div class="course-form-actions"><button id="course-submit" type="submit">Create course</button><button id="course-cancel" class="small secondary" type="button" hidden>Cancel</button></div></form>
+        <p id="course-message" class="message" aria-live="polite"></p><div id="course-list" class="course-chips"></div>
+      </section>
+
       <section class="registration-ranges-card" aria-labelledby="registration-ranges-title">
-        <h2 id="registration-ranges-title">Allowed registrations</h2>
+        <div class="section-heading"><div><p class="eyebrow">Student registration</p><h2 id="registration-ranges-title">Allowed Registrations</h2></div></div>
         <p class="form-help">Add a number range for each class. These ranges apply to new student registrations across all courses.</p>
         <form id="registration-range-form">
-          <label>Class prefix<input id="registration-prefix" placeholder="2022-BSE" maxlength="48" autocapitalize="characters" spellcheck="false" required disabled></label>
-          <div class="registration-range-fields">
+          <div class="registration-range-form-grid">
+            <label>Class prefix<input id="registration-prefix" placeholder="2022-BSE" maxlength="48" autocapitalize="characters" spellcheck="false" required disabled></label>
             <label>First number<input id="registration-range-start" type="number" min="1" max="999999" step="1" value="1" required disabled></label>
             <label>Last number<input id="registration-range-end" type="number" min="1" max="999999" step="1" value="99" required disabled></label>
+            <label>Number digits<select id="registration-range-digits" disabled><option value="1">1 digit (1)</option><option value="2" selected>2 digits (01)</option><option value="3">3 digits (001)</option><option value="4">4 digits (0001)</option><option value="5">5 digits (00001)</option><option value="6">6 digits (000001)</option></select></label>
           </div>
-          <label>Number digits<select id="registration-range-digits" disabled><option value="1">1 digit (1)</option><option value="2" selected>2 digits (01)</option><option value="3">3 digits (001)</option><option value="4">4 digits (0001)</option><option value="5">5 digits (00001)</option><option value="6">6 digits (000001)</option></select></label>
           <p id="registration-range-preview" class="form-help" aria-live="polite">Example: 2022-BSE-01 to 2022-BSE-99.</p>
           <div class="registration-range-actions"><button id="registration-range-submit" type="submit" class="small" disabled>Add allowed class</button><button id="registration-range-cancel" type="button" class="small secondary" hidden>Cancel</button></div>
         </form>
@@ -83,23 +82,35 @@
         <div id="registration-range-list" class="registration-range-list"></div>
         <p class="form-help">Disabling a class stops new registrations. Existing students keep their access. To allow one number, use the same first and last number.</p>
       </section>
-      </div>
-      <section class="editor-card">
-        <div id="no-user-selected" class="empty-state"><h2>Select an enrollment</h2><p>Choose a student enrollment to approve or edit course marks.</p></div>
-        <form id="student-editor" hidden>
-          <div class="editor-title"><div><h2 id="editor-name">Student</h2><p id="editor-identity">—</p></div><span id="editor-status" class="badge">Pending</span></div>
-          <div class="form-grid"><label>Course<input id="editor-course" readonly></label><label>Section<select id="editor-section"></select></label><label>Enrollment status<select id="editor-approved"><option value="false">Pending</option><option value="true">Approved</option></select></label></div>
-          <div class="assessments-heading"><div><h3>Assessment categories</h3><p>Create any category and add entries.</p></div><button id="add-category" class="small" type="button">+ Add category</button></div><div id="category-editor"></div>
-          <button id="save-student" type="submit">Save enrollment and marks</button><p id="admin-message" class="message"></p>
-        </form>
-      </section>
     </section>
 
-    <section class="report-card">
-      <div class="section-heading"><div><p class="eyebrow">Class analytics</p><h2>Student Reports</h2></div><button id="download-report" class="small secondary" disabled>Download report</button></div>
-      <div class="report-controls"><label>Course<select id="report-course" required></select></label><label>Section<select id="report-section"><option value="both">All Sections</option></select></label><label>Report type<select id="report-type"><option value="overall">Overall marks</option><option value="category">Category-wise marks</option></select></label><label id="report-category-label" hidden>Category<select id="report-category"></select></label><button id="generate-report" type="button">Generate report</button></div>
-      <p id="report-summary" class="report-summary">Select a course and generate a report.</p><div class="table-wrap"><table id="report-table" hidden><thead id="report-head"></thead><tbody id="report-body"></tbody></table></div>
-      <section id="csv-import-panel" class="csv-panel" hidden><h3>Bulk marks upload</h3><p id="csv-description">Download a template, enter marks, then upload it.</p><div class="csv-actions"><button id="download-template" class="secondary">1. Download template</button><label class="file-button">2. Choose completed CSV<input id="marks-csv" type="file" accept=".csv,text/csv"></label><button id="upload-marks" disabled>3. Upload marks</button></div><p id="csv-message" class="message"></p></section>
+    <section id="admin-panel-students" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-students" tabindex="0" hidden>
+      <div class="admin-grid">
+        <aside class="users-card">
+          <div class="section-heading"><h2>Enrollments</h2><button id="refresh-users" class="small secondary">Refresh</button></div>
+          <label>Course filter<select id="admin-course-filter"><option value="all">All courses</option></select></label>
+          <div class="user-tabs"><button class="user-tab active" data-user-view="users">Users <span id="approved-users-count">0</span></button><button class="user-tab" data-user-view="pending">Pending Users <span id="pending-users-count">0</span></button></div>
+          <input id="user-search" type="search" placeholder="Search name or registration"><div id="users-list" class="users-list"></div>
+        </aside>
+        <section class="editor-card">
+          <div id="no-user-selected" class="empty-state"><h2>Select an enrollment</h2><p>Choose a student enrollment to approve or edit course marks.</p></div>
+          <form id="student-editor" hidden>
+            <div class="editor-title"><div><h2 id="editor-name">Student</h2><p id="editor-identity">—</p></div><span id="editor-status" class="badge">Pending</span></div>
+            <div class="form-grid"><label>Course<input id="editor-course" readonly></label><label>Section<select id="editor-section"></select></label><label>Enrollment status<select id="editor-approved"><option value="false">Pending</option><option value="true">Approved</option></select></label></div>
+            <div class="assessments-heading"><div><h3>Assessment categories</h3><p>Create any category and add entries.</p></div><button id="add-category" class="small" type="button">+ Add category</button></div><div id="category-editor"></div>
+            <button id="save-student" type="submit">Save enrollment and marks</button><p id="admin-message" class="message"></p>
+          </form>
+        </section>
+      </div>
+    </section>
+
+    <section id="admin-panel-reports" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-reports" tabindex="0" hidden>
+      <section class="report-card">
+        <div class="section-heading"><div><p class="eyebrow">Class analytics</p><h2>Student Reports</h2></div><button id="download-report" class="small secondary" disabled>Download report</button></div>
+        <div class="report-controls"><label>Course<select id="report-course" required></select></label><label>Section<select id="report-section"><option value="both">All Sections</option></select></label><label>Report type<select id="report-type"><option value="overall">Overall marks</option><option value="category">Category-wise marks</option></select></label><label id="report-category-label" hidden>Category<select id="report-category"></select></label><button id="generate-report" type="button">Generate report</button></div>
+        <p id="report-summary" class="report-summary">Select a course and generate a report.</p><div class="table-wrap"><table id="report-table" hidden><thead id="report-head"></thead><tbody id="report-body"></tbody></table></div>
+        <section id="csv-import-panel" class="csv-panel" hidden><h3>Bulk marks upload</h3><p id="csv-description">Download a template, enter marks, then upload it.</p><div class="csv-actions"><button id="download-template" class="secondary">1. Download template</button><label class="file-button">2. Choose completed CSV<input id="marks-csv" type="file" accept=".csv,text/csv"></label><button id="upload-marks" disabled>3. Upload marks</button></div><p id="csv-message" class="message"></p></section>
+      </section>
     </section>
   </main>
 

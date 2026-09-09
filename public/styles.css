@@ -67,8 +67,16 @@ tfoot td:first-child { border-radius: 0 0 0 10px; }
 tfoot td:last-child { border-radius: 0 0 10px 0; }
 .empty-cell { padding: 30px; color: #667085; text-align: center !important; }
 .category-display-row td { padding: 10px 14px; background: #eaf0ff; color: #24469b; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-align: left !important; text-transform: uppercase; }
+.admin-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 24px; padding: 7px; overflow-x: auto; border: 1px solid #dfe5ee; border-radius: 14px; background: #e5eaf1; }
+.admin-tab { display: flex; align-items: center; justify-content: center; gap: 9px; min-width: 0; padding: 12px 14px; background: transparent; color: #526071; font-size: 14px; }
+.admin-tab:hover { background: #f4f6f9; color: #172033; }
+.admin-tab.active { background: #fff; color: #172033; box-shadow: 0 3px 10px rgba(23,32,51,.12); }
+.admin-tab-number { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 auto; border-radius: 50%; background: #d4dbe5; font-size: 11px; }
+.admin-tab.active .admin-tab-number { background: #172033; color: #fff; }
+.admin-tab-panel:focus-visible { outline: 3px solid rgba(44,100,246,.2); outline-offset: 4px; }
+.admin-management-panel { display: grid; gap: 22px; }
 .admin-grid { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 22px; align-items: start; }
-.course-admin-card { margin-bottom: 24px; padding: 24px; background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); }
+.course-admin-card { padding: 24px; background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); }
 .course-form { display: grid; grid-template-columns: 1.5fr .7fr 1fr auto; gap: 14px; align-items: end; }
 .course-form-actions { display: flex; align-items: center; gap: 8px; }
 .course-form-actions button { width: auto; }
@@ -78,13 +86,12 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .course-edit-button { flex-shrink: 0; width: auto; padding: 4px 8px; border: 1px solid #9bb2ef; border-radius: 999px; background: #fff; color: #24469b; font-size: 11px; }
 .course-edit-button:hover { background: #24469b; color: #fff; }
 .users-card, .editor-card, .registration-ranges-card { background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); padding: 22px; }
-.admin-sidebar { display: grid; gap: 22px; min-width: 0; }
 .registration-ranges-card h2 { margin: 0; font-size: 21px; }
 .form-help { margin: 10px 0 14px; font-size: 12px; text-align: left; overflow-wrap: anywhere; }
-.registration-range-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
-.registration-range-fields input { min-width: 0; }
+.registration-range-form-grid { display: grid; grid-template-columns: 1.35fr repeat(3, 1fr); gap: 14px; align-items: end; }
+.registration-range-form-grid input, .registration-range-form-grid select { min-width: 0; }
 .registration-range-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.registration-range-list { display: grid; gap: 10px; margin-top: 12px; }
+.registration-range-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 12px; }
 .registration-range-item { min-width: 0; padding: 12px; background: #f7f9fc; border: 1px solid #e4e9f1; border-radius: 10px; }
 .registration-range-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .registration-range-heading strong { overflow-wrap: anywhere; }
@@ -136,7 +143,7 @@ legend { padding: 0 7px; font-weight: 800; }
 .danger { background: #fff0f0; color: #b42318; }
 .danger:hover { background: #ffdede; }
 #save-student { margin-top: 22px; }
-.report-card { margin-top: 24px; padding: 28px; background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); }
+.report-card { padding: 28px; background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); }
 .report-controls { display: grid; grid-template-columns: repeat(4, 1fr) auto; gap: 14px; align-items: end; }
 .report-controls button { width: auto; }
 .report-summary { padding: 13px 15px; background: #f7f9fc; border-radius: 10px; }
@@ -153,8 +160,11 @@ legend { padding: 0 7px; font-weight: 800; }
   body { padding: 20px 12px; }
   .profile-details { grid-template-columns: repeat(2, 1fr); }
   .dashboard-header { align-items: flex-start; }
+  .admin-tabs { display: flex; }
+  .admin-tab { flex: 1 0 180px; }
   .admin-grid { grid-template-columns: 1fr; }
   .course-form { grid-template-columns: 1fr 1fr; }
+  .registration-range-form-grid { grid-template-columns: 1fr 1fr; }
   .users-card { position: static; }
   .report-controls { grid-template-columns: 1fr 1fr; }
   .csv-actions { grid-template-columns: 1fr; }
@@ -170,5 +180,6 @@ legend { padding: 0 7px; font-weight: 800; }
   .report-controls { grid-template-columns: 1fr; }
   .report-controls button { width: 100%; }
   .course-form, .compact-profile { grid-template-columns: 1fr; }
+  .registration-range-form-grid { grid-template-columns: 1fr; }
   .header-actions { align-items: stretch; flex-direction: column; }
 }
