@@ -17,7 +17,11 @@ function fixture(saved = [], options = {}) {
   const enrollmentData = new Map((options.enrollments || []).map(item => [item.id, {...item}]));
   const writes = []; const confirmations = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
   const publish = () => listener?.({docs: [...data].map(([id, value]) => ({id, data: () => ({...value})}))});
-  const applyOperations = operations => operations.forEach(operation => { if (operation.operation === "delete" && operation.ref.name === "enrollments") enrollmentData.delete(operation.ref.id); });
+  const applyOperations = operations => operations.forEach(operation => {
+    if (operation.operation !== "delete") return;
+    if (operation.ref.name === "enrollments") enrollmentData.delete(operation.ref.id);
+    if (operation.ref.name === "registration_ranges") { data.delete(operation.ref.id); publish(); }
+  });
   const mock = {
     firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {}}, onAuthStateChanged() {},
     doc: (_db, name, id) => ({name, id}), collection: (_db, name) => ({name}), where: (field, operator, value) => ({field, operator, value}), query: (ref, ...filters) => ({...ref, filters}), serverTimestamp: () => "updated",
@@ -123,6 +127,35 @@ test("registration controls add, edit, disable, enable and cancel a class range"
     assert.equal(f.el("registration-prefix").readOnly, false);
     assert.equal(f.el("registration-prefix").value, "");
     assert.equal(f.data.get("2022-BSE").start, 1);
+  } finally {await f.close();}
+});
+
+test("registration ranges can be deleted without restoring the legacy default", async () => {
+  const f = fixture([{prefix: "2023-BSCS", start: 1, end: 99, digits: 2, active: true}]);
+  try {
+    f.start();
+    const removeClass = f.rangeButton("Delete registration range 2023-BSCS");
+    assert(removeClass, "Delete is available for a saved class");
+    f.setConfirm(false); removeClass.click(); await flush();
+    assert.equal(f.data.has("2023-BSCS"), true);
+    assert.match(f.confirmations.at(-1), /Existing student accounts and enrollments will remain/);
+
+    f.setConfirm(true); removeClass.click(); await flush();
+    assert.equal(f.data.has("2023-BSCS"), false);
+    assert.equal(f.rangeButton("Delete registration range 2023-BSCS"), null);
+
+    const removeLegacy = f.rangeButton("Delete registration range 2024-BSE");
+    assert(removeLegacy, "Delete is available for the legacy fallback");
+    removeLegacy.click(); await flush();
+    assert.equal(f.data.get("2024-BSE").deleted, true);
+    assert.equal(f.data.get("2024-BSE").active, false);
+    assert.equal(f.rangeButton("Delete registration range 2024-BSE"), null);
+    assert.match(f.el("registration-range-help").textContent, /currently closed/);
+
+    f.fillRange("2024-BSE", "1", "99", "2"); await f.submit("registration-range-form");
+    assert.equal(f.data.get("2024-BSE").deleted, undefined);
+    assert.equal(f.data.get("2024-BSE").active, true);
+    assert(f.rangeButton("Delete registration range 2024-BSE"), "A deleted class can be added again later");
   } finally {await f.close();}
 });
 

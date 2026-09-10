@@ -9,7 +9,7 @@ Students sign in using GitHub, submit their registration number, and wait for ad
 - GitHub-only signup and sign-in
 - Firebase UID used as each user's Firestore document ID
 - Student registration-number form
-- Administrator-managed registration prefixes and numeric ranges for multiple classes
+- Administrator-managed registration prefixes and numeric ranges for multiple classes, with edit, disable, and delete controls
 - Administrator approval for new accounts
 - Separate student and administrator dashboards
 - Three focused administrator tabs for courses and registrations, students and marks, and reports

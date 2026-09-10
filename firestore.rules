@@ -7,7 +7,7 @@ service cloud.firestore {
     function isBlocked() { return signedIn() && exists(/databases/$(database)/documents/blocked_users/$(request.auth.uid)); }
 
     function validRegistrationRange(prefix, range) {
-      return range.keys().hasOnly(['prefix', 'start', 'end', 'digits', 'active', 'updated_at'])
+      return range.keys().hasOnly(['prefix', 'start', 'end', 'digits', 'active', 'deleted', 'updated_at'])
              && range.prefix == prefix && prefix.size() <= 48
              && prefix.matches('[A-Z0-9]+(-[A-Z0-9]+)*')
              && range.start is int && range.end is int && range.digits is int
@@ -19,7 +19,10 @@ service cloud.firestore {
                  || (range.digits == 4 && range.end <= 9999)
                  || (range.digits == 5 && range.end <= 99999)
                  || (range.digits == 6 && range.end <= 999999))
-             && range.active is bool && range.updated_at == request.time;
+             && range.active is bool
+             && (!range.keys().hasAny(['deleted'])
+                 || (range.deleted is bool && range.deleted == true && range.active == false))
+             && range.updated_at == request.time;
     }
 
     function registrationInRange(registration) {
@@ -28,7 +31,7 @@ service cloud.firestore {
       let prefix = registration.replace('-[0-9]+$', '');
       let rangePath = /databases/$(database)/documents/registration_ranges/$(prefix);
       let savedRange = exists(rangePath);
-      // Keep the previous class available until its range is edited or disabled.
+      // Keep the previous class available until its range is edited, disabled, or tombstoned.
       return prefix.size() <= 48
              && ((savedRange && registrationMatchesSavedRange(serial, rangePath))
                  || (!savedRange && prefix == '2024-BSE'
@@ -37,7 +40,8 @@ service cloud.firestore {
 
     function registrationMatchesSavedRange(serial, rangePath) {
       let range = get(rangePath).data;
-      return range.active == true && serial.size() == range.digits
+      return !range.keys().hasAny(['deleted'])
+             && range.active == true && serial.size() == range.digits
              && int(serial) >= range.start && int(serial) <= range.end;
     }
 
@@ -65,8 +69,8 @@ service cloud.firestore {
     match /registration_ranges/{prefix} {
       allow read: if signedIn() && !isBlocked();
       allow create, update: if isAdmin() && validRegistrationRange(prefix, request.resource.data);
-      // Disable a range instead of deleting it, so the legacy default cannot reappear.
-      allow delete: if false;
+      // The legacy default uses a tombstone so it cannot reappear after deletion.
+      allow delete: if isAdmin() && prefix != '2024-BSE';
     }
 
     match /users/{userId} {

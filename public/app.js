@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebas
 import { getAuth, GithubAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
-import { normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
+import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -149,9 +149,24 @@ function renderRegistrationRanges() {
     const actions = document.createElement("div"); actions.className = "registration-range-actions";
     const edit = document.createElement("button"); edit.type = "button"; edit.className = "small secondary"; edit.textContent = "Edit"; edit.setAttribute("aria-label", `Edit registration range ${range.prefix}`); edit.addEventListener("click", () => beginRegistrationRangeEdit(range));
     const toggle = document.createElement("button"); toggle.type = "button"; toggle.className = "small secondary"; toggle.textContent = range.active ? "Disable" : "Enable"; toggle.setAttribute("aria-label", `${toggle.textContent} registrations for ${range.prefix}`); toggle.addEventListener("click", () => saveRegistrationRange({ ...range, active: !range.active }));
-    actions.append(edit, toggle); row.append(heading, description, actions); container.append(row);
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "small danger registration-range-delete"; remove.textContent = "Delete"; remove.setAttribute("aria-label", `Delete registration range ${range.prefix}`); remove.addEventListener("click", () => deleteRegistrationRange(range));
+    actions.append(edit, toggle, remove); row.append(heading, description, actions); container.append(row);
   });
   updateRegistrationRangeControls();
+}
+
+async function deleteRegistrationRange(range) {
+  if (savingRegistrationRange || !registrationRangesReady) return;
+  if (!confirm(`Delete allowed registrations for ${range.prefix}? New students in ${describeRegistrationRange(range)} will no longer be able to register. Existing student accounts and enrollments will remain. You can add this class again later.`)) return;
+  savingRegistrationRange = true; updateRegistrationRangeControls(); setRegistrationRangeMessage("");
+  try {
+    const rangeRef = doc(db, "registration_ranges", range.prefix);
+    if (range.prefix === defaultRegistrationRange.prefix) await setDoc(rangeRef, { prefix: range.prefix, start: range.start, end: range.end, digits: range.digits, active: false, deleted: true, updated_at: serverTimestamp() });
+    else await deleteDoc(rangeRef);
+    if (editingRegistrationPrefix === range.prefix) resetRegistrationRangeForm();
+    setRegistrationRangeMessage(`${range.prefix} deleted. Existing students were not changed.`, true);
+  } catch (error) { setRegistrationRangeMessage(friendlyError(error)); }
+  finally { savingRegistrationRange = false; updateRegistrationRangeControls(); }
 }
 
 async function saveRegistrationRange(range) {

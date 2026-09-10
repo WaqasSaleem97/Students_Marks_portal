@@ -28,8 +28,13 @@ test("only admins can change allowed ranges; authenticated students can read", a
   await assertSucceeds(setDoc(doc(admin, "registration_ranges", "2022-BSE"), range("2022-BSE")));
   await assertSucceeds(getDocs(collection(student, "registration_ranges")));
   await assertFails(getDocs(collection(env.unauthenticatedContext().firestore(), "registration_ranges")));
-  await assertFails(deleteDoc(doc(admin, "registration_ranges", "2022-BSE")));
-  for (const patch of [{start: 0}, {end: 100}, {digits: 7}, {start: 2.5}, {prefix: "WRONG"}, {active: "yes"}, {updated_at: "not-a-timestamp"}, {unexpected: true}]) await assertFails(setDoc(doc(admin, "registration_ranges", "2022-BSE"), range("2022-BSE", patch)));
+  await assertFails(deleteDoc(doc(student, "registration_ranges", "2022-BSE")));
+  await assertSucceeds(deleteDoc(doc(admin, "registration_ranges", "2022-BSE")));
+  await assertSucceeds(setDoc(doc(admin, "registration_ranges", "2024-BSE"), range("2024-BSE")));
+  await assertFails(deleteDoc(doc(admin, "registration_ranges", "2024-BSE")));
+  await assertSucceeds(setDoc(doc(admin, "registration_ranges", "2024-BSE"), range("2024-BSE", {active: false, deleted: true})));
+  await assertFails(setDoc(doc(student, "users", "student"), profile("2024-BSE-01")));
+  for (const patch of [{start: 0}, {end: 100}, {digits: 7}, {start: 2.5}, {prefix: "WRONG"}, {active: "yes"}, {deleted: false}, {deleted: "yes"}, {updated_at: "not-a-timestamp"}, {unexpected: true}]) await assertFails(setDoc(doc(admin, "registration_ranges", "2022-BSE"), range("2022-BSE", patch)));
 });
 
 test("multiple classes and numeric boundaries are enforced on direct profile writes", async () => {

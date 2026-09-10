@@ -22,10 +22,11 @@ test("the legacy range can be edited and disabled without being restored", () =>
   assert.equal(isRegistrationAllowed("2024-BSE-01", ranges), false);
   assert.equal(isRegistrationAllowed("2022-BSE-01", ranges), true);
   assert.equal(isRegistrationAllowed("2024-BSE-01", effectiveRegistrationRanges([{...defaultRegistrationRange, start: 50}])), false);
+  assert.deepEqual(effectiveRegistrationRanges([{...defaultRegistrationRange, active: false, deleted: true}]), []);
 });
 
 test("invalid settings are rejected and large ranges need no generated list", () => {
-  for (const patch of [{prefix: ""}, {prefix: "a/b"}, {prefix: 123}, {prefix: "A".repeat(49)}, {start: 0}, {start: 2.5}, {end: 0}, {end: 1000000}, {digits: 0}, {digits: 7}, {digits: 1}, {active: "true"}]) assert.notEqual(validateRegistrationRange({...classes[0], ...patch}), "", JSON.stringify(patch));
+  for (const patch of [{prefix: ""}, {prefix: "a/b"}, {prefix: 123}, {prefix: "A".repeat(49)}, {start: 0}, {start: 2.5}, {end: 0}, {end: 1000000}, {digits: 0}, {digits: 7}, {digits: 1}, {active: "true"}, {deleted: false}, {deleted: "true"}, {deleted: true}]) assert.notEqual(validateRegistrationRange({...classes[0], ...patch}), "", JSON.stringify(patch));
   const large = {prefix: "BS-CS-2026", start: 1, end: 999999, digits: 6, active: true};
   assert.equal(validateRegistrationRange(large), "");
   assert.equal(isRegistrationAllowed("BS-CS-2026-999999", [large]), true);
