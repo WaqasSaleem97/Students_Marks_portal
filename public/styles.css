@@ -81,10 +81,13 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .course-form-actions { display: flex; align-items: center; gap: 8px; }
 .course-form-actions button { width: auto; }
 .course-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.course-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 7px 6px 11px; background: #eaf0ff; color: #24469b; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.course-chip { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; padding: 6px 7px 6px 11px; background: #eaf0ff; color: #24469b; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .course-chip-label { min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
-.course-edit-button { flex-shrink: 0; width: auto; padding: 4px 8px; border: 1px solid #9bb2ef; border-radius: 999px; background: #fff; color: #24469b; font-size: 11px; }
+.course-chip-actions { display: inline-flex; flex: 0 0 auto; gap: 5px; }
+.course-edit-button, .course-delete-button { flex-shrink: 0; width: auto; padding: 4px 8px; border: 1px solid #9bb2ef; border-radius: 999px; background: #fff; color: #24469b; font-size: 11px; }
 .course-edit-button:hover { background: #24469b; color: #fff; }
+.course-delete-button { border-color: #f0a29d; color: #b42318; }
+.course-delete-button:hover { background: #b42318; color: #fff; }
 .users-card, .editor-card, .registration-ranges-card { background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); padding: 22px; }
 .registration-ranges-card h2 { margin: 0; font-size: 21px; }
 .form-help { margin: 10px 0 14px; font-size: 12px; text-align: left; overflow-wrap: anywhere; }

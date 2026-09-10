@@ -16,6 +16,7 @@ Students sign in using GitHub, submit their registration number, and wait for ad
 - Any number of assessment categories, such as Quiz, Assignment, Midterm, Final, Lab, Project, or Presentation
 - Any number of marks entries inside each category
 - Administrators can edit course names, codes, and sections while keeping existing enrollment records linked to the same course
+- Administrators can delete a course and its associated enrollments and marks while retaining student accounts
 - Category tabs and category totals for students
 - Category-wise and overall reports for administrators
 - CSV report downloads

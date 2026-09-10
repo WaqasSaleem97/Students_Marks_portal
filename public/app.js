@@ -314,7 +314,7 @@ function startAdminListeners() {
 function setCourseMessage(message, success = false) { el("course-message").className = success ? "message success" : "message"; el("course-message").textContent = message; }
 function setCourseSaving(saving) {
   savingCourse = saving; el("course-form").setAttribute("aria-busy", String(saving));
-  document.querySelectorAll("#course-form input, #course-form button, .course-edit-button").forEach((control) => { control.disabled = saving; });
+  document.querySelectorAll("#course-form input, #course-form button, .course-edit-button, .course-delete-button").forEach((control) => { control.disabled = saving; });
 }
 function resetCourseForm() {
   editingCourseId = null; el("course-form").reset(); el("course-form-title").textContent = "Create Course"; el("course-submit").textContent = "Create course"; el("course-cancel").hidden = true;
@@ -330,9 +330,39 @@ function renderCourseList() {
     const chip = document.createElement("div"); chip.className = "course-chip";
     const label = document.createElement("span"); label.className = "course-chip-label"; label.textContent = `${course.code}: ${course.name} (${(course.sections || []).join(", ")})`;
     const edit = document.createElement("button"); edit.type = "button"; edit.className = "course-edit-button"; edit.textContent = "Edit"; edit.disabled = savingCourse; edit.title = `Edit ${course.code || "course"}`; edit.setAttribute("aria-label", `Edit ${course.code || "course"}`); edit.addEventListener("click", () => beginCourseEdit(course));
-    chip.append(label, edit); container.append(chip);
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "course-delete-button"; remove.textContent = "Delete"; remove.disabled = savingCourse; remove.title = `Delete ${course.code || "course"}`; remove.setAttribute("aria-label", `Delete ${course.code || "course"}`); remove.addEventListener("click", () => deleteCourse(course));
+    const actions = document.createElement("span"); actions.className = "course-chip-actions"; actions.append(edit, remove);
+    chip.append(label, actions); container.append(chip);
   });
 }
+
+async function deleteCourseAndEnrollments(course, related) {
+  const courseRef = doc(db, "courses", course.id);
+  if (!related.length) { await deleteDoc(courseRef); return; }
+  for (let start = 0; start < related.length; start += 499) {
+    const batch = writeBatch(db); const group = related.slice(start, start + 499);
+    group.forEach((enrollment) => batch.delete(doc(db, "enrollments", enrollment.id)));
+    if (start + 499 >= related.length) batch.delete(courseRef);
+    await batch.commit();
+  }
+}
+
+async function deleteCourse(course) {
+  if (savingCourse) return;
+  setCourseSaving(true); setCourseMessage("");
+  try {
+    const snapshot = await getDocs(query(collection(db, "enrollments"), where("course_id", "==", course.id)));
+    const related = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+    const enrollmentWarning = related.length === 1 ? " It will also permanently delete 1 enrollment and its marks." : related.length > 1 ? ` It will also permanently delete ${related.length} enrollments and their marks.` : "";
+    if (!confirm(`Delete ${course.code}: ${course.name}?${enrollmentWarning} Student accounts will remain. This cannot be undone.`)) return;
+    await deleteCourseAndEnrollments(course, related);
+    if (editingCourseId === course.id) resetCourseForm();
+    if (related.some((item) => item.id === selectedEnrollmentId)) clearEditor();
+    setCourseMessage(related.length ? `Course deleted with ${related.length} enrollment${related.length === 1 ? "" : "s"} and associated marks. Student accounts were kept.` : "Course deleted.", true);
+  } catch (error) { setCourseMessage(friendlyError(error)); }
+  finally { setCourseSaving(false); }
+}
+
 async function updateCourseAndEnrollments(course, name, code, sections) {
   const snapshot = await getDocs(query(collection(db, "enrollments"), where("course_id", "==", course.id)));
   const related = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));

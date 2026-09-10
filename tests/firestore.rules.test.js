@@ -56,6 +56,18 @@ test("new profile and enrollment succeed together; orphan enrollments and bypass
   await assertFails(updateDoc(doc(db, "enrollments", "new-student__cloud"), {approved: true}));
 });
 
+test("course deletion is restricted to admins and supports deleting linked enrollments", async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), "users", "student"), profile("2024-BSE-01"));
+    await setDoc(doc(context.firestore(), "enrollments", "student__cloud"), enrollment("student"));
+  });
+  await assertFails(deleteDoc(doc(dbFor("student"), "courses", "cloud")));
+  const admin = dbFor("admin"), batch = writeBatch(admin);
+  batch.delete(doc(admin, "enrollments", "student__cloud"));
+  batch.delete(doc(admin, "courses", "cloud"));
+  await assertSucceeds(batch.commit());
+});
+
 test("disabling the default blocks new profiles and preserves existing students and marks", async () => {
   const admin = dbFor("admin");
   const marks = {categories: [{name: "Quiz", items: [{name: "Quiz 1", obtained: 8, total: 10}]}]};

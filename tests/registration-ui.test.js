@@ -8,26 +8,31 @@ const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "
 const app = fs.readFileSync(new URL("../public/app.js", import.meta.url), "utf8").replace(/^import .*;\n/gm, "");
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture(saved = []) {
+function fixture(saved = [], options = {}) {
   const window = new Window({settings: {enableJavaScriptEvaluation: true, suppressInsecureJavaScriptEnvironmentWarning: true, disableJavaScriptFileLoading: true, disableCSSFileLoading: true}});
   window.document.write(html);
   // Happy DOM omits the browser's Option convenience constructor.
   window.Option = function Option(text, value) { const option = window.document.createElement("option"); option.textContent = text; option.value = value; return option; };
   const data = new Map(saved.map(range => [range.prefix, {...range}]));
-  const writes = []; let listener, listenerError, failNext = false;
+  const enrollmentData = new Map((options.enrollments || []).map(item => [item.id, {...item}]));
+  const writes = []; const confirmations = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
   const publish = () => listener?.({docs: [...data].map(([id, value]) => ({id, data: () => ({...value})}))});
+  const applyOperations = operations => operations.forEach(operation => { if (operation.operation === "delete" && operation.ref.name === "enrollments") enrollmentData.delete(operation.ref.id); });
   const mock = {
     firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {}}, onAuthStateChanged() {},
-    doc: (_db, name, id) => ({name, id}), collection: (_db, name) => ({name}), serverTimestamp: () => "updated",
+    doc: (_db, name, id) => ({name, id}), collection: (_db, name) => ({name}), where: (field, operator, value) => ({field, operator, value}), query: (ref, ...filters) => ({...ref, filters}), serverTimestamp: () => "updated",
+    getDocs: async ref => ({docs: [...enrollmentData].filter(([, value]) => ref.name === "enrollments" && (ref.filters || []).every(filter => filter.operator === "==" && value[filter.field] === filter.value)).map(([id, value]) => ({id, data: () => ({...value})}))}),
     onSnapshot: (ref, callback, error) => {assert.equal(ref.name, "registration_ranges"); listener = callback; listenerError = error; publish(); return () => {listener = null;};},
     setDoc: async (ref, value) => {await Promise.resolve(); if (failNext) {failNext = false; throw {code: "permission-denied"};} writes.push({ref, value}); data.set(ref.id, value); publish();},
-    writeBatch: () => {const operations = []; return {set: (ref, value) => operations.push({ref, value}), commit: async () => {writes.push(...operations);}};}
+    deleteDoc: async ref => {const operation = {operation: "delete", ref}; writes.push(operation); applyOperations([operation]);},
+    writeBatch: () => {const operations = []; return {set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref}), commit: async () => {writes.push(...operations); applyOperations(operations);}};},
+    confirm: message => {confirmations.push(message); return confirmResult;}, alert: () => {}
   };
   Object.assign(window, helpers, mock);
   window.eval(app + `\nwindow.testHooks = {
     startRegistrationRangesListener,
     setProfile(profile) { currentProfile = profile; updateRegistrationRangeHelp(); },
-    setup() { currentUser = {uid: "test-student"}; courses = [{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A", "B"]}]; populateCourseControls(); },
+    setup() { currentUser = {uid: "test-student"}; courses = [{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A", "B"]}]; populateCourseControls(); renderCourseList(); },
     stopListeners
   };`);
   window.testHooks.setup();
@@ -35,7 +40,7 @@ function fixture(saved = []) {
   const submit = async id => {el(id).dispatchEvent(new window.Event("submit", {bubbles: true, cancelable: true})); await flush();};
   const fillRange = (prefix, first, last, digits) => {el("registration-prefix").value = prefix; el("registration-range-start").value = first; el("registration-range-end").value = last; el("registration-range-digits").value = digits;};
   const rangeButton = label => window.document.querySelector(`#registration-range-list button[aria-label="${label}"]`);
-  return {window, el, writes, data, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
+  return {window, el, writes, data, enrollmentData, confirmations, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
 }
 
 test("admin areas are separated into three accessible tabs", async () => {
@@ -67,6 +72,31 @@ test("admin areas are separated into three accessible tabs", async () => {
     assert.equal(management.hidden, false);
     assert.equal(reports.hidden, true);
     assert.equal(f.window.document.activeElement, f.el("admin-tab-management"));
+  } finally {await f.close();}
+});
+
+test("course deletion requires confirmation and removes enrollments while keeping student accounts", async () => {
+  const f = fixture([], {enrollments: [
+    {id: "student-1__cloud", user_id: "student-1", course_id: "cloud", marks: {categories: [{name: "Quiz", items: []}]}},
+    {id: "student-2__cloud", user_id: "student-2", course_id: "cloud", marks: {categories: []}}
+  ]});
+  try {
+    const edit = f.window.document.querySelector('[aria-label="Edit CC"]');
+    const remove = f.window.document.querySelector('[aria-label="Delete CC"]');
+    assert(edit, "Edit remains available");
+    assert(remove, "Delete is available");
+
+    f.setConfirm(false); remove.click(); await flush();
+    assert.equal(f.writes.length, 0);
+    assert.match(f.confirmations.at(-1), /2 enrollments and their marks/);
+    assert.match(f.confirmations.at(-1), /Student accounts will remain/);
+
+    f.setConfirm(true); remove.click(); await flush();
+    const deleted = f.writes.filter(item => item.operation === "delete").map(item => `${item.ref.name}/${item.ref.id}`);
+    assert.deepEqual(deleted, ["enrollments/student-1__cloud", "enrollments/student-2__cloud", "courses/cloud"]);
+    assert.equal(f.enrollmentData.size, 0);
+    assert.match(f.el("course-message").textContent, /2 enrollments and associated marks/);
+    assert.equal(f.el("course-message").className, "message success");
   } finally {await f.close();}
 });
 
