@@ -125,6 +125,9 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .delete-enrollment:hover { background: #ffebbd; }
 .empty-state { padding: 80px 20px; text-align: center; }
 .empty-state p, .editor-title p { margin: 6px 0 0; }
+.github-profile-link { color: #24469b; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.github-profile-link:hover { color: #172f72; }
+.github-profile-link:focus-visible { border-radius: 3px; outline: 3px solid rgba(44,100,246,.2); outline-offset: 2px; }
 .editor-title { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 20px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
 fieldset { margin: 22px 0 0; padding: 16px; border: 1px solid #e1e6ee; border-radius: 12px; }

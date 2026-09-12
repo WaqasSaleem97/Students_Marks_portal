@@ -72,6 +72,16 @@ function courseIdForCode(code) { return code.toLowerCase().replace(/[^a-z0-9]+/g
 function courseById(id) { return courses.find((course) => course.id === id); }
 function profileById(id) { return users.find((user) => user.id === id); }
 function displayName(profile = {}) { return [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.user_name || "Student"; }
+function githubProfileUrl(username) {
+  const value = String(username || "").trim();
+  return /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(value) ? `https://github.com/${encodeURIComponent(value)}` : "";
+}
+function renderEditorIdentity(profile = {}) {
+  const identity = el("editor-identity"); const username = String(profile.user_name || "").trim(); const profileUrl = githubProfileUrl(username);
+  identity.replaceChildren(document.createTextNode(`${profile.registration_number || "No registration"} · ${profile.email || "No email"} · `));
+  if (!profileUrl) { identity.append(document.createTextNode(username || "No GitHub username")); return; }
+  const link = document.createElement("a"); link.className = "github-profile-link"; link.href = profileUrl; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = username; link.title = `Open ${username} on GitHub in a new tab`; identity.append(link);
+}
 function percent(obtained, total) { return total > 0 ? `${((obtained / total) * 100).toFixed(1)}%` : "—"; }
 function markCategories(marks = {}) { return Array.isArray(marks.categories) ? marks.categories : []; }
 function friendlyError(error) {
@@ -446,7 +456,7 @@ function populateEditorCourse(enrollment, selectedSection = enrollment.section) 
   el("editor-section").replaceChildren(); sections.forEach((section) => el("editor-section").add(new Option(`Section ${section}`, section)));
   el("editor-section").value = sections.includes(selectedSection) ? selectedSection : enrollment.section;
 }
-function selectEnrollment(id) { selectedEnrollmentId = id; const enrollment = enrollments.find((item) => item.id === id); const profile = profileById(enrollment.user_id) || {}; el("no-user-selected").hidden = true; el("student-editor").hidden = false; el("editor-name").textContent = displayName(profile); el("editor-identity").textContent = `${profile.registration_number || ""} · ${profile.email || ""} · ${profile.user_name || ""}`; populateEditorCourse(enrollment); el("editor-approved").value = String(Boolean(enrollment.approved)); el("editor-status").textContent = enrollment.approved ? "Approved" : "Pending"; el("editor-status").classList.toggle("published", enrollment.approved); el("category-editor").replaceChildren(); markCategories(enrollment.marks).forEach(addCategory); renderEnrollmentList(); }
+function selectEnrollment(id) { selectedEnrollmentId = id; const enrollment = enrollments.find((item) => item.id === id); const profile = profileById(enrollment.user_id) || {}; el("no-user-selected").hidden = true; el("student-editor").hidden = false; el("editor-name").textContent = displayName(profile); renderEditorIdentity(profile); populateEditorCourse(enrollment); el("editor-approved").value = String(Boolean(enrollment.approved)); el("editor-status").textContent = enrollment.approved ? "Approved" : "Pending"; el("editor-status").classList.toggle("published", enrollment.approved); el("category-editor").replaceChildren(); markCategories(enrollment.marks).forEach(addCategory); renderEnrollmentList(); }
 
 function addMarkRow(container, item = {}) { const row = el("mark-row-template").content.firstElementChild.cloneNode(true); row.querySelector(".mark-name").value = item.name || ""; row.querySelector(".mark-obtained").value = item.obtained ?? ""; row.querySelector(".mark-total").value = item.total ?? ""; row.querySelector(".remove-row").addEventListener("click", () => row.remove()); container.append(row); }
 function addCategory(category = {}) { const block = el("category-template").content.firstElementChild.cloneNode(true); block.querySelector(".category-name").value = category.name || ""; const rows = block.querySelector(".category-rows"); (category.items || []).forEach((item) => addMarkRow(rows, item)); block.querySelector(".add-mark").addEventListener("click", () => addMarkRow(rows)); block.querySelector(".remove-category").addEventListener("click", () => block.remove()); el("category-editor").append(block); }

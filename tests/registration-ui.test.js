@@ -35,6 +35,7 @@ function fixture(saved = [], options = {}) {
   Object.assign(window, helpers, mock);
   window.eval(app + `\nwindow.testHooks = {
     startRegistrationRangesListener,
+    renderEditorIdentity,
     setProfile(profile) { currentProfile = profile; updateRegistrationRangeHelp(); },
     setup() { currentUser = {uid: "test-student"}; courses = [{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A", "B"]}]; populateCourseControls(); renderCourseList(); },
     stopListeners
@@ -76,6 +77,24 @@ test("admin areas are separated into three accessible tabs", async () => {
     assert.equal(management.hidden, false);
     assert.equal(reports.hidden, true);
     assert.equal(f.window.document.activeElement, f.el("admin-tab-management"));
+  } finally {await f.close();}
+});
+
+test("student GitHub usernames open the matching profile in a new tab", async () => {
+  const f = fixture();
+  try {
+    f.window.testHooks.renderEditorIdentity({registration_number: "2024-BSE-79", email: "nidaawajid624@gmail.com", user_name: "nidaawajid"});
+    const identity = f.el("editor-identity"); const link = identity.querySelector("a.github-profile-link");
+    assert(link, "A valid GitHub username is linked");
+    assert.equal(identity.textContent, "2024-BSE-79 · nidaawajid624@gmail.com · nidaawajid");
+    assert.equal(link.textContent, "nidaawajid");
+    assert.equal(link.getAttribute("href"), "https://github.com/nidaawajid");
+    assert.equal(link.target, "_blank");
+    assert.equal(link.rel, "noopener noreferrer");
+
+    f.window.testHooks.renderEditorIdentity({registration_number: "2024-BSE-80", email: "student@example.com", user_name: "not/a/username"});
+    assert.equal(identity.querySelector("a"), null, "An invalid username cannot create an unsafe profile link");
+    assert.match(identity.textContent, /not\/a\/username$/);
   } finally {await f.close();}
 });
 
