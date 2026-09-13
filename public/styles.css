@@ -107,9 +107,10 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .user-tab span { min-width: 21px; padding: 2px 6px; border-radius: 999px; background: #dfe5ee; font-size: 11px; }
 .user-tab.active span { background: #172033; color: #fff; }
 .small { width: auto; padding: 8px 11px; font-size: 13px; }
-.users-list { display: grid; gap: 8px; margin-top: 14px; max-height: 68vh; overflow-y: auto; }
-.user-item { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; background: #f7f9fc; color: #172033; border: 1px solid #e4e9f1; text-align: left; }
-.user-item-content { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
+.users-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 14px; max-height: 68vh; overflow-x: hidden; overflow-y: auto; }
+.user-item { display: flex; width: 100%; min-width: 0; flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; background: #f7f9fc; color: #172033; border: 1px solid #e4e9f1; text-align: left; }
+.user-item-content { display: flex; min-width: 0; max-width: 100%; flex: 1 1 0; flex-direction: column; align-items: flex-start; gap: 4px; }
+.user-item-content > * { max-width: 100%; overflow-wrap: anywhere; }
 .user-item:hover, .user-item.active { background: #eaf0ff; border-color: #8daaf7; }
 .user-item span { color: #667085; font-size: 12px; font-weight: 500; }
 .user-item .user-item-github { font-size: 12px; }

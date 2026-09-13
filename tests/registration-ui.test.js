@@ -6,6 +6,7 @@ import * as helpers from "../public/registration-ranges.js";
 
 const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8").replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "");
 const app = fs.readFileSync(new URL("../public/app.js", import.meta.url), "utf8").replace(/^import .*;\n/gm, "");
+const styles = fs.readFileSync(new URL("../public/styles.css", import.meta.url), "utf8");
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function fixture(saved = [], options = {}) {
@@ -80,6 +81,17 @@ test("admin areas are separated into three accessible tabs", async () => {
     assert.equal(reports.hidden, true);
     assert.equal(f.window.document.activeElement, f.el("admin-tab-management"));
   } finally {await f.close();}
+});
+
+test("the enrollment list stays within its card without horizontal scrolling", () => {
+  const listRule = styles.match(/\.users-list\s*\{([^}]+)\}/)?.[1] || "";
+  const itemRule = styles.match(/\.user-item\s*\{([^}]+)\}/)?.[1] || "";
+  const contentRule = styles.match(/\.user-item-content\s*\{([^}]+)\}/)?.[1] || "";
+  assert.match(listRule, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.match(listRule, /overflow-x:\s*hidden/);
+  assert.match(itemRule, /width:\s*100%/);
+  assert.match(itemRule, /min-width:\s*0/);
+  assert.match(contentRule, /flex:\s*1 1 0/);
 });
 
 test("registered-user GitHub usernames open the matching profile in a new tab", async () => {
