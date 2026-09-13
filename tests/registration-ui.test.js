@@ -36,6 +36,8 @@ function fixture(saved = [], options = {}) {
   window.eval(app + `\nwindow.testHooks = {
     startRegistrationRangesListener,
     renderEditorIdentity,
+    renderStudentDashboard,
+    setAdminRecords(nextUsers, nextEnrollments) { users = nextUsers; enrollments = nextEnrollments; renderEnrollmentList(); },
     setProfile(profile) { currentProfile = profile; updateRegistrationRangeHelp(); },
     setup() { currentUser = {uid: "test-student"}; courses = [{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A", "B"]}]; populateCourseControls(); renderCourseList(); },
     stopListeners
@@ -80,10 +82,11 @@ test("admin areas are separated into three accessible tabs", async () => {
   } finally {await f.close();}
 });
 
-test("student GitHub usernames open the matching profile in a new tab", async () => {
+test("registered-user GitHub usernames open the matching profile in a new tab", async () => {
   const f = fixture();
   try {
-    f.window.testHooks.renderEditorIdentity({registration_number: "2024-BSE-79", email: "nidaawajid624@gmail.com", user_name: "nidaawajid"});
+    const profile = {id: "student-79", first_name: "Nidaa", last_name: "Wajid", registration_number: "2024-BSE-79", email: "nidaawajid624@gmail.com", user_name: "nidaawajid"};
+    f.window.testHooks.renderEditorIdentity(profile);
     const identity = f.el("editor-identity"); const link = identity.querySelector("a.github-profile-link");
     assert(link, "A valid GitHub username is linked");
     assert.equal(identity.textContent, "2024-BSE-79 · nidaawajid624@gmail.com · nidaawajid");
@@ -91,6 +94,30 @@ test("student GitHub usernames open the matching profile in a new tab", async ()
     assert.equal(link.getAttribute("href"), "https://github.com/nidaawajid");
     assert.equal(link.target, "_blank");
     assert.equal(link.rel, "noopener noreferrer");
+
+    f.window.testHooks.setProfile(profile);
+    f.window.testHooks.renderStudentDashboard([{id: "student-79__cloud", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "A", approved: true, marks: {categories: []}}]);
+    const studentLink = f.el("student-username").querySelector("a.github-profile-link");
+    assert(studentLink, "The registered student's profile shows a link");
+    assert.equal(studentLink.textContent, "nidaawajid");
+    assert.equal(studentLink.getAttribute("href"), "https://github.com/nidaawajid");
+    assert.equal(studentLink.target, "_blank");
+
+    f.window.testHooks.setAdminRecords([profile], [{id: "student-79__cloud", user_id: "student-79", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "A", approved: true, marks: {categories: []}}]);
+    const listLink = f.window.document.querySelector("#users-list a.user-item-github");
+    assert(listLink, "The enrollment list shows the GitHub username as a link");
+    assert.equal(listLink.textContent, "@nidaawajid");
+    assert.equal(listLink.getAttribute("href"), "https://github.com/nidaawajid");
+    assert.equal(listLink.target, "_blank");
+    assert.equal(listLink.rel, "noopener noreferrer");
+
+    const usernameOnlyProfile = {id: "student-80", registration_number: "2024-BSE-80", email: "faiq@example.com", user_name: "faiqashahzad16"};
+    f.window.testHooks.setAdminRecords([usernameOnlyProfile], [{id: "student-80__cloud", user_id: "student-80", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "B", approved: true, marks: {categories: []}}]);
+    const titleLink = f.window.document.querySelector("#users-list strong a.github-profile-link");
+    assert(titleLink, "A username used as the list title is linked without duplication");
+    assert.equal(titleLink.textContent, "faiqashahzad16");
+    assert.equal(titleLink.getAttribute("href"), "https://github.com/faiqashahzad16");
+    assert.equal(f.window.document.querySelector("#users-list a.user-item-github"), null);
 
     f.window.testHooks.renderEditorIdentity({registration_number: "2024-BSE-80", email: "student@example.com", user_name: "not/a/username"});
     assert.equal(identity.querySelector("a"), null, "An invalid username cannot create an unsafe profile link");

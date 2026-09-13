@@ -76,11 +76,19 @@ function githubProfileUrl(username) {
   const value = String(username || "").trim();
   return /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(value) ? `https://github.com/${encodeURIComponent(value)}` : "";
 }
+function createGithubProfileLink(username, label = username) {
+  const value = String(username || "").trim(); const profileUrl = githubProfileUrl(value);
+  if (!profileUrl) return null;
+  const link = document.createElement("a"); link.className = "github-profile-link"; link.href = profileUrl; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = String(label || value); link.title = `Open ${value} on GitHub in a new tab`; link.addEventListener("click", (event) => event.stopPropagation()); return link;
+}
+function renderGithubUsername(container, username) {
+  const value = String(username || "").trim(); const link = createGithubProfileLink(value);
+  container.replaceChildren(link || document.createTextNode(value || "—"));
+}
 function renderEditorIdentity(profile = {}) {
-  const identity = el("editor-identity"); const username = String(profile.user_name || "").trim(); const profileUrl = githubProfileUrl(username);
+  const identity = el("editor-identity"); const username = String(profile.user_name || "").trim(); const link = createGithubProfileLink(username);
   identity.replaceChildren(document.createTextNode(`${profile.registration_number || "No registration"} · ${profile.email || "No email"} · `));
-  if (!profileUrl) { identity.append(document.createTextNode(username || "No GitHub username")); return; }
-  const link = document.createElement("a"); link.className = "github-profile-link"; link.href = profileUrl; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = username; link.title = `Open ${username} on GitHub in a new tab`; identity.append(link);
+  identity.append(link || document.createTextNode(username || "No GitHub username"));
 }
 function percent(obtained, total) { return total > 0 ? `${((obtained / total) * 100).toFixed(1)}%` : "—"; }
 function markCategories(marks = {}) { return Array.isArray(marks.categories) ? marks.categories : []; }
@@ -313,7 +321,7 @@ function renderPendingDashboard() {
 }
 
 function renderStudentDashboard(approved) {
-  el("student-avatar").src = currentProfile.photo_url || currentUser.photoURL || ""; el("student-name").textContent = displayName(currentProfile); el("student-registration").textContent = currentProfile.registration_number; el("student-username").textContent = currentProfile.user_name || "—"; el("student-email").textContent = currentProfile.email || "Private on GitHub"; el("student-course-count").textContent = approved.length;
+  el("student-avatar").src = currentProfile.photo_url || currentUser.photoURL || ""; el("student-name").textContent = displayName(currentProfile); el("student-registration").textContent = currentProfile.registration_number; renderGithubUsername(el("student-username"), currentProfile.user_name); el("student-email").textContent = currentProfile.email || "Private on GitHub"; el("student-course-count").textContent = approved.length;
   const tabs = el("student-course-tabs"); tabs.replaceChildren(); approved.sort((a, b) => a.course_name.localeCompare(b.course_name)).forEach((enrollment, index) => { const button = document.createElement("button"); button.className = `tab${index === 0 ? " active" : ""}`; button.textContent = `${enrollment.course_name} (${enrollment.course_code}) Section ${enrollment.section}`; button.addEventListener("click", () => { tabs.querySelectorAll(".tab").forEach((tab) => tab.classList.remove("active")); button.classList.add("active"); renderCourseMarks(enrollment); }); tabs.append(button); }); renderCourseMarks(approved[0]);
 }
 
@@ -429,7 +437,7 @@ function filteredEnrollments() {
 function renderEnrollmentList() {
   const courseFilter = el("admin-course-filter")?.value || "all"; const scoped = enrollments.filter((item) => courseFilter === "all" || item.course_id === courseFilter); el("approved-users-count").textContent = scoped.filter((item) => item.approved).length; el("pending-users-count").textContent = scoped.filter((item) => !item.approved).length;
   const list = el("users-list"); list.replaceChildren(); const items = filteredEnrollments();
-  items.forEach((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const row = document.createElement("div"); row.className = `user-item${selectedEnrollmentId === enrollment.id ? " active" : ""}`; row.tabIndex = 0; const content = document.createElement("span"); content.className = "user-item-content"; const title = document.createElement("strong"); title.textContent = displayName(profile); const meta = document.createElement("span"); meta.textContent = `${profile.registration_number || "No registration"} · ${enrollment.course_name} (${enrollment.course_code}) Section ${enrollment.section}`; content.append(title, meta); const actions = document.createElement("span"); actions.className = "pending-actions";
+  items.forEach((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const row = document.createElement("div"); row.className = `user-item${selectedEnrollmentId === enrollment.id ? " active" : ""}`; row.tabIndex = 0; const content = document.createElement("span"); content.className = "user-item-content"; const title = document.createElement("strong"); const name = displayName(profile); const username = String(profile.user_name || "").trim(); const nameIsUsername = username && name.toLowerCase() === username.toLowerCase(); const nameLink = nameIsUsername ? createGithubProfileLink(username, name) : null; if (nameLink) title.append(nameLink); else title.textContent = name; content.append(title); const usernameLink = nameIsUsername ? null : createGithubProfileLink(username, `@${username}`); if (usernameLink) { usernameLink.classList.add("user-item-github"); content.append(usernameLink); } const meta = document.createElement("span"); meta.textContent = `${profile.registration_number || "No registration"} · ${enrollment.course_name} (${enrollment.course_code}) Section ${enrollment.section}`; content.append(meta); const actions = document.createElement("span"); actions.className = "pending-actions";
     if (!enrollment.approved) actions.append(actionButton("✓", "Approve enrollment", "approve-user", (event) => approveEnrollment(event, enrollment)));
     actions.append(actionButton("E", "Delete enrollment", "delete-enrollment", (event) => deleteEnrollment(event, enrollment)));
     if (enrollment.approved) actions.append(actionButton("🗑", "Delete user and all enrollments", "delete-user", (event) => deleteUserAndEnrollments(event, enrollment.user_id, false)));

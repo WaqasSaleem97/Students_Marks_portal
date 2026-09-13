@@ -112,6 +112,7 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .user-item-content { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
 .user-item:hover, .user-item.active { background: #eaf0ff; border-color: #8daaf7; }
 .user-item span { color: #667085; font-size: 12px; font-weight: 500; }
+.user-item .user-item-github { font-size: 12px; }
 .user-list-empty { margin: 16px 8px; color: #667085; font-size: 13px; text-align: center; }
 .pending-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .pending-action { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 9px; font-size: 20px; }
