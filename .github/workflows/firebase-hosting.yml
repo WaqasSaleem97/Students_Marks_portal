@@ -33,6 +33,8 @@ jobs:
       - name: Check JavaScript syntax
         run: |
           node --input-type=module --check < public/app.js
+          node --input-type=module --check < public/auth-flow.js
+          node --input-type=module --check < public/bootstrap.js
           node --input-type=module --check < public/firebase-config.js
           node --input-type=module --check < public/registration-ranges.js
 

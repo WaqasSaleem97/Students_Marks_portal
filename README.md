@@ -148,7 +148,7 @@ Application name:
 Your Student Marks Portal
 
 Homepage URL:
-https://YOUR_PROJECT_ID.web.app
+https://YOUR_PROJECT_ID.firebaseapp.com
 
 Application description:
 A student marks portal using Firebase and GitHub authentication.
@@ -187,6 +187,8 @@ Confirm these domains exist:
 YOUR_PROJECT_ID.web.app
 YOUR_PROJECT_ID.firebaseapp.com
 ```
+
+Use `https://YOUR_PROJECT_ID.firebaseapp.com` as the portal's canonical address. Visits to the matching `web.app` address are redirected there automatically so that the portal and Firebase's authentication handler share one origin. This prevents mobile browsers from losing GitHub sign-in state when cross-site storage is restricted.
 
 Add your custom domain later if you use one. Enter domain names without `https://`.
 
@@ -283,7 +285,7 @@ Set up this repository secret once:
 4. Open this repository's [Actions secrets settings](https://github.com/WaqasSaleem97/Students_Marks_portal/settings/secrets/actions), choose **New repository secret**, enter the exact secret name above, and paste the entire downloaded JSON file into the secret value. Save it directly in GitHub; keep the key out of repository files and chat messages.
 5. Open [Actions > Deploy to Firebase Hosting](https://github.com/WaqasSaleem97/Students_Marks_portal/actions/workflows/firebase-hosting.yml), choose **Run workflow**, select `main`, and run it once. Adding a secret does not start a deployment by itself. Subsequent pushes to `main` trigger deployment automatically.
 
-The first workflow run will stop with a setup message if the secret is missing. After adding the secret, start a new manual run. A successful deployment publishes to [the live portal](https://studentsreportcard-809ae.web.app).
+The first workflow run will stop with a setup message if the secret is missing. After adding the secret, start a new manual run. A successful deployment publishes to [the live portal](https://studentsreportcard-809ae.firebaseapp.com). The `web.app` Hosting alias remains available and automatically sends visitors to this canonical address.
 
 The workflow deploys Firestore rules before Hosting, so a failed rules deployment prevents publishing an interface that depends on unavailable permissions. Existing deployment service accounts need the additional **Firebase Rules Admin** and **Service Usage Viewer** roles; the same GitHub secret can be reused. Firestore indexes still require a separate CLI deployment. Firebase documents its GitHub Actions integration [here](https://firebase.google.com/docs/hosting/github-integration).
 
@@ -310,6 +312,8 @@ Firebase prints a Hosting URL similar to:
 ```text
 https://YOUR_PROJECT_ID.web.app
 ```
+
+Open `https://YOUR_PROJECT_ID.firebaseapp.com` for the canonical portal and mobile-compatible GitHub sign-in. The `web.app` alias redirects to it.
 
 To publish local HTML, CSS, or JavaScript changes manually, deploy Hosting again:
 

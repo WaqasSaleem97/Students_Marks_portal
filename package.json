@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/registration-ranges.test.js tests/registration-ui.test.js",
+    "test": "node --test tests/auth-flow.test.js tests/registration-ranges.test.js tests/registration-ui.test.js",
     "test:rules": "firebase emulators:exec --config firebase.test.json --only firestore --project demo-student-marks \"node --test tests/firestore.rules.test.js\""
   },
   "dependencies": {

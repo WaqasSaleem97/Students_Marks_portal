@@ -16,7 +16,7 @@ function fixture(saved = [], options = {}) {
   window.Option = function Option(text, value) { const option = window.document.createElement("option"); option.textContent = text; option.value = value; return option; };
   const data = new Map(saved.map(range => [range.prefix, {...range}]));
   const enrollmentData = new Map((options.enrollments || []).map(item => [item.id, {...item}]));
-  const writes = []; const confirmations = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
+  const writes = []; const confirmations = []; const redirectCalls = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
   const publish = () => listener?.({docs: [...data].map(([id, value]) => ({id, data: () => ({...value})}))});
   const applyOperations = operations => operations.forEach(operation => {
     if (operation.operation !== "delete") return;
@@ -24,7 +24,7 @@ function fixture(saved = [], options = {}) {
     if (operation.ref.name === "registration_ranges") { data.delete(operation.ref.id); publish(); }
   });
   const mock = {
-    firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {}}, onAuthStateChanged() {},
+    firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {} static credentialFromResult(result) {return result?.credential || null;}}, getRedirectResult: async () => null, signInWithRedirect: async (...args) => {redirectCalls.push(args);}, onAuthStateChanged() {},
     doc: (_db, name, id) => ({name, id}), collection: (_db, name) => ({name}), where: (field, operator, value) => ({field, operator, value}), query: (ref, ...filters) => ({...ref, filters}), serverTimestamp: () => "updated",
     getDocs: async ref => ({docs: [...enrollmentData].filter(([, value]) => ref.name === "enrollments" && (ref.filters || []).every(filter => filter.operator === "==" && value[filter.field] === filter.value)).map(([id, value]) => ({id, data: () => ({...value})}))}),
     onSnapshot: (ref, callback, error) => {assert.equal(ref.name, "registration_ranges"); listener = callback; listenerError = error; publish(); return () => {listener = null;};},
@@ -48,8 +48,18 @@ function fixture(saved = [], options = {}) {
   const submit = async id => {el(id).dispatchEvent(new window.Event("submit", {bubbles: true, cancelable: true})); await flush();};
   const fillRange = (prefix, first, last, digits) => {el("registration-prefix").value = prefix; el("registration-range-start").value = first; el("registration-range-end").value = last; el("registration-range-digits").value = digits;};
   const rangeButton = label => window.document.querySelector(`#registration-range-list button[aria-label="${label}"]`);
-  return {window, el, writes, data, enrollmentData, confirmations, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
+  return {window, el, writes, data, enrollmentData, confirmations, redirectCalls, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
 }
+
+test("GitHub login uses the redirect flow that works on mobile browsers", async () => {
+  const f = fixture();
+  try {
+    f.el("github-login").click(); await flush();
+    assert.equal(f.redirectCalls.length, 1);
+    assert.equal(f.el("github-login").disabled, true);
+    assert.equal(f.el("login-message").textContent, "Opening GitHub sign-in…");
+  } finally {await f.close();}
+});
 
 test("admin areas are separated into three accessible tabs", async () => {
   const f = fixture();

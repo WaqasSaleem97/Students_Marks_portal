@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import { getAuth, GithubAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getAuth, GithubAuthProvider, getRedirectResult, signInWithRedirect, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
@@ -499,10 +499,24 @@ async function uploadMarksCsv() { const file = el("marks-csv").files[0]; if (!fi
 
 function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = null; registrationRanges = []; registrationRangesReady = false; resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
 
-el("github-login").addEventListener("click", async () => { try { const result = await signInWithPopup(auth, githubProvider); const credential = GithubAuthProvider.credentialFromResult(result); sessionStorage.setItem("githubProfile", JSON.stringify(await getGithubProfile(credential.accessToken))); await routeUser(result.user); } catch (error) { el("login-message").textContent = friendlyError(error); } });
+async function captureGithubRedirectProfile(result) {
+  if (!result) return;
+  const credential = GithubAuthProvider.credentialFromResult(result);
+  if (credential?.accessToken) sessionStorage.setItem("githubProfile", JSON.stringify(await getGithubProfile(credential.accessToken)));
+}
+
+const redirectResultPromise = getRedirectResult(auth).then(captureGithubRedirectProfile).catch((error) => {
+  el("login-message").textContent = friendlyError(error);
+});
+
+el("github-login").addEventListener("click", async () => {
+  const button = el("github-login"); button.disabled = true; el("login-message").textContent = "Opening GitHub sign-in…";
+  try { await signInWithRedirect(auth, githubProvider); }
+  catch (error) { button.disabled = false; el("login-message").textContent = friendlyError(error); }
+});
 el("registration-course").addEventListener("change", updateRegistrationSections); el("report-course").addEventListener("change", updateReportSections); el("report-type").addEventListener("change", () => { el("report-category-label").hidden = el("report-type").value !== "category"; }); el("admin-course-filter").addEventListener("change", renderEnrollmentList); el("user-search").addEventListener("input", renderEnrollmentList);
 el("cancel-enrollment").addEventListener("click", () => { addingAnotherCourse = false; renderStudentState(); }); el("add-course").addEventListener("click", () => openEnrollmentForm(true)); el("pending-add-course").addEventListener("click", () => openEnrollmentForm(true));
 el("add-category").addEventListener("click", () => addCategory()); document.querySelectorAll(".user-tab").forEach((button) => button.addEventListener("click", () => { userListMode = button.dataset.userView; document.querySelectorAll(".user-tab").forEach((tab) => tab.classList.toggle("active", tab === button)); renderEnrollmentList(); }));
 el("refresh-users").addEventListener("click", renderEnrollmentList); el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
 
-onAuthStateChanged(auth, async (user) => { currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("login-message").textContent = friendlyError(error); showView("login-view"); } });
+onAuthStateChanged(auth, async (user) => { await redirectResultPromise; currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); el("github-login").disabled = false; showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("login-message").textContent = friendlyError(error); showView("login-view"); } });
