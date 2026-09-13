@@ -188,7 +188,7 @@ YOUR_PROJECT_ID.web.app
 YOUR_PROJECT_ID.firebaseapp.com
 ```
 
-Use `https://YOUR_PROJECT_ID.firebaseapp.com` as the portal's canonical address. Visits to the matching `web.app` address are redirected there automatically so that the portal and Firebase's authentication handler share one origin. This prevents mobile browsers from losing GitHub sign-in state when cross-site storage is restricted.
+Use `https://YOUR_PROJECT_ID.firebaseapp.com` as the portal's canonical address. Visits to the matching `web.app` address are redirected there automatically so that the portal and Firebase's authentication handler share one origin. Mobile browsers use redirect authentication to avoid pop-up limitations, while desktop browsers use a pop-up so they do not depend on redirect state. Hosting disables caching for portal files so deployed authentication fixes reach browsers immediately.
 
 Add your custom domain later if you use one. Enter domain names without `https://`.
 

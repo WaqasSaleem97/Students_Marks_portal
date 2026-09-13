@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { Window } from "happy-dom";
 import * as helpers from "../public/registration-ranges.js";
+import * as authHelpers from "../public/auth-flow.js";
 
 const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8").replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "");
 const app = fs.readFileSync(new URL("../public/app.js", import.meta.url), "utf8").replace(/^import .*;\n/gm, "");
@@ -12,11 +13,12 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture(saved = [], options = {}) {
   const window = new Window({settings: {enableJavaScriptEvaluation: true, suppressInsecureJavaScriptEnvironmentWarning: true, disableJavaScriptFileLoading: true, disableCSSFileLoading: true}});
   window.document.write(html);
+  Object.defineProperty(window.navigator, "userAgent", {configurable: true, value: options.userAgent || "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/140"});
   // Happy DOM omits the browser's Option convenience constructor.
   window.Option = function Option(text, value) { const option = window.document.createElement("option"); option.textContent = text; option.value = value; return option; };
   const data = new Map(saved.map(range => [range.prefix, {...range}]));
   const enrollmentData = new Map((options.enrollments || []).map(item => [item.id, {...item}]));
-  const writes = []; const confirmations = []; const redirectCalls = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
+  const writes = []; const confirmations = []; const popupCalls = []; const redirectCalls = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
   const publish = () => listener?.({docs: [...data].map(([id, value]) => ({id, data: () => ({...value})}))});
   const applyOperations = operations => operations.forEach(operation => {
     if (operation.operation !== "delete") return;
@@ -24,7 +26,7 @@ function fixture(saved = [], options = {}) {
     if (operation.ref.name === "registration_ranges") { data.delete(operation.ref.id); publish(); }
   });
   const mock = {
-    firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {} static credentialFromResult(result) {return result?.credential || null;}}, getRedirectResult: async () => null, signInWithRedirect: async (...args) => {redirectCalls.push(args);}, onAuthStateChanged() {},
+    firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {} static credentialFromResult(result) {return result?.credential || null;}}, getAdditionalUserInfo: result => result?.additionalUserInfo || null, getRedirectResult: async () => null, signInWithPopup: async (...args) => {popupCalls.push(args); return {user: {displayName: "Test User", email: "test@example.com", providerData: [{providerId: "github.com", uid: "1"}]}, additionalUserInfo: {username: "test-user", profile: {login: "test-user", id: 1}}};}, signInWithRedirect: async (...args) => {redirectCalls.push(args);}, onAuthStateChanged() {},
     doc: (_db, name, id) => ({name, id}), collection: (_db, name) => ({name}), where: (field, operator, value) => ({field, operator, value}), query: (ref, ...filters) => ({...ref, filters}), serverTimestamp: () => "updated",
     getDocs: async ref => ({docs: [...enrollmentData].filter(([, value]) => ref.name === "enrollments" && (ref.filters || []).every(filter => filter.operator === "==" && value[filter.field] === filter.value)).map(([id, value]) => ({id, data: () => ({...value})}))}),
     onSnapshot: (ref, callback, error) => {assert.equal(ref.name, "registration_ranges"); listener = callback; listenerError = error; publish(); return () => {listener = null;};},
@@ -33,7 +35,7 @@ function fixture(saved = [], options = {}) {
     writeBatch: () => {const operations = []; return {set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref}), commit: async () => {writes.push(...operations); applyOperations(operations);}};},
     confirm: message => {confirmations.push(message); return confirmResult;}, alert: () => {}
   };
-  Object.assign(window, helpers, mock);
+  Object.assign(window, helpers, authHelpers, mock);
   window.eval(app + `\nwindow.testHooks = {
     startRegistrationRangesListener,
     renderEditorIdentity,
@@ -48,15 +50,26 @@ function fixture(saved = [], options = {}) {
   const submit = async id => {el(id).dispatchEvent(new window.Event("submit", {bubbles: true, cancelable: true})); await flush();};
   const fillRange = (prefix, first, last, digits) => {el("registration-prefix").value = prefix; el("registration-range-start").value = first; el("registration-range-end").value = last; el("registration-range-digits").value = digits;};
   const rangeButton = label => window.document.querySelector(`#registration-range-list button[aria-label="${label}"]`);
-  return {window, el, writes, data, enrollmentData, confirmations, redirectCalls, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
+  return {window, el, writes, data, enrollmentData, confirmations, popupCalls, redirectCalls, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
 }
 
-test("GitHub login uses the redirect flow that works on mobile browsers", async () => {
+test("GitHub login uses a popup in desktop browsers such as Edge", async () => {
   const f = fixture();
   try {
     f.el("github-login").click(); await flush();
-    assert.equal(f.redirectCalls.length, 1);
+    assert.equal(f.popupCalls.length, 1);
+    assert.equal(f.redirectCalls.length, 0);
     assert.equal(f.el("github-login").disabled, true);
+    assert.equal(f.el("login-message").textContent, "Waiting for GitHub sign-in…");
+  } finally {await f.close();}
+});
+
+test("GitHub login keeps same-origin redirect authentication on Android", async () => {
+  const f = fixture([], {userAgent: "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36"});
+  try {
+    f.el("github-login").click(); await flush();
+    assert.equal(f.popupCalls.length, 0);
+    assert.equal(f.redirectCalls.length, 1);
     assert.equal(f.el("login-message").textContent, "Opening GitHub sign-in…");
   } finally {await f.close();}
 });

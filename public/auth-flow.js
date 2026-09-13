@@ -11,3 +11,10 @@ export function canonicalAuthUrl(currentUrl, config = {}) {
   url.port = "";
   return url.href;
 }
+
+export function shouldUseRedirectSignIn(navigatorLike = {}) {
+  if (navigatorLike.userAgentData?.mobile === true) return true;
+  const userAgent = String(navigatorLike.userAgent || "");
+  const touchIpad = navigatorLike.platform === "MacIntel" && Number(navigatorLike.maxTouchPoints) > 1;
+  return touchIpad || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(userAgent);
+}

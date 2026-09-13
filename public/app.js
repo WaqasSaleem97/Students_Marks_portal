@@ -1,7 +1,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import { getAuth, GithubAuthProvider, getRedirectResult, signInWithRedirect, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getAuth, GithubAuthProvider, getAdditionalUserInfo, getRedirectResult, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
+import { shouldUseRedirectSignIn } from "./auth-flow.js";
 import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -214,6 +215,21 @@ async function getGithubProfile(token) {
   return response.json();
 }
 
+function cacheGithubProfile(profile) {
+  try { sessionStorage.setItem("githubProfile", JSON.stringify(profile)); }
+  catch { /* Firebase user data still allows sign-in when browser storage is restricted. */ }
+}
+
+function cachedGithubProfile() {
+  try { return JSON.parse(sessionStorage.getItem("githubProfile") || "{}"); }
+  catch { return {}; }
+}
+
+function clearCachedGithubProfile() {
+  try { sessionStorage.removeItem("githubProfile"); }
+  catch { /* Nothing to clear when browser storage is unavailable. */ }
+}
+
 function splitName(name = "") { const parts = name.trim().split(/\s+/).filter(Boolean); return { first_name: parts.shift() || "", last_name: parts.join(" ") }; }
 
 function startCoursesListener() {
@@ -306,7 +322,7 @@ el("registration-form").addEventListener("submit", async (event) => {
   try {
     const batch = writeBatch(db);
     if (!currentProfile) {
-      const gh = JSON.parse(sessionStorage.getItem("githubProfile") || "{}"); const names = splitName(gh.name || currentUser.displayName || "");
+      const gh = cachedGithubProfile(); const names = splitName(gh.name || currentUser.displayName || "");
       batch.set(doc(db, "users", currentUser.uid), { ...names, created_at: serverTimestamp(), email: gh.email || currentUser.email || "", github_id: String(gh.id || ""), photo_url: gh.avatar_url || currentUser.photoURL || "", registration_number: registration, user_name: gh.login || "" });
     }
     batch.set(doc(db, "enrollments", enrollmentId(currentUser.uid, courseId)), { user_id: currentUser.uid, course_id: courseId, course_name: course.name, course_code: course.code, section, approved: false, created_at: serverTimestamp(), marks: { categories: [] } });
@@ -499,19 +515,28 @@ async function uploadMarksCsv() { const file = el("marks-csv").files[0]; if (!fi
 
 function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = null; registrationRanges = []; registrationRangesReady = false; resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
 
-async function captureGithubRedirectProfile(result) {
+async function captureGithubProfile(result) {
   if (!result) return;
-  const credential = GithubAuthProvider.credentialFromResult(result);
-  if (credential?.accessToken) sessionStorage.setItem("githubProfile", JSON.stringify(await getGithubProfile(credential.accessToken)));
+  const additional = getAdditionalUserInfo(result); const provider = result.user?.providerData?.find((item) => item.providerId === "github.com") || {};
+  let profile = { ...(additional?.profile || {}), login: additional?.profile?.login || additional?.username || "", id: additional?.profile?.id || provider.uid || "", name: additional?.profile?.name || result.user?.displayName || "", email: additional?.profile?.email || result.user?.email || "", avatar_url: additional?.profile?.avatar_url || result.user?.photoURL || "" };
+  if (!profile.login) {
+    try { const credential = GithubAuthProvider.credentialFromResult(result); if (credential?.accessToken) profile = { ...profile, ...await getGithubProfile(credential.accessToken) }; }
+    catch { /* The signed-in Firebase user can continue with provider data. */ }
+  }
+  cacheGithubProfile(profile);
 }
 
-const redirectResultPromise = getRedirectResult(auth).then(captureGithubRedirectProfile).catch((error) => {
+let authResultPromise = getRedirectResult(auth).then(captureGithubProfile).catch((error) => {
   el("login-message").textContent = friendlyError(error);
 });
 
 el("github-login").addEventListener("click", async () => {
-  const button = el("github-login"); button.disabled = true; el("login-message").textContent = "Opening GitHub sign-in…";
-  try { await signInWithRedirect(auth, githubProvider); }
+  const button = el("github-login"); const redirect = shouldUseRedirectSignIn(navigator); button.disabled = true; el("login-message").textContent = redirect ? "Opening GitHub sign-in…" : "Waiting for GitHub sign-in…";
+  try {
+    if (redirect) { await signInWithRedirect(auth, githubProvider); return; }
+    authResultPromise = signInWithPopup(auth, githubProvider).then(async (result) => { await captureGithubProfile(result); return result; });
+    await authResultPromise;
+  }
   catch (error) { button.disabled = false; el("login-message").textContent = friendlyError(error); }
 });
 el("registration-course").addEventListener("change", updateRegistrationSections); el("report-course").addEventListener("change", updateReportSections); el("report-type").addEventListener("change", () => { el("report-category-label").hidden = el("report-type").value !== "category"; }); el("admin-course-filter").addEventListener("change", renderEnrollmentList); el("user-search").addEventListener("input", renderEnrollmentList);
@@ -519,4 +544,4 @@ el("cancel-enrollment").addEventListener("click", () => { addingAnotherCourse = 
 el("add-category").addEventListener("click", () => addCategory()); document.querySelectorAll(".user-tab").forEach((button) => button.addEventListener("click", () => { userListMode = button.dataset.userView; document.querySelectorAll(".user-tab").forEach((tab) => tab.classList.toggle("active", tab === button)); renderEnrollmentList(); }));
 el("refresh-users").addEventListener("click", renderEnrollmentList); el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
 
-onAuthStateChanged(auth, async (user) => { await redirectResultPromise; currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; sessionStorage.removeItem("githubProfile"); el("github-login").disabled = false; showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("login-message").textContent = friendlyError(error); showView("login-view"); } });
+onAuthStateChanged(auth, async (user) => { await authResultPromise; currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; clearCachedGithubProfile(); el("github-login").disabled = false; showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("github-login").disabled = false; el("login-message").textContent = friendlyError(error); showView("login-view"); } });
