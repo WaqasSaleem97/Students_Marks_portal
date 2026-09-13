@@ -123,13 +123,20 @@ test("registered-user GitHub usernames open the matching profile in a new tab", 
     assert.equal(listLink.target, "_blank");
     assert.equal(listLink.rel, "noopener noreferrer");
 
-    const usernameOnlyProfile = {id: "student-80", registration_number: "2024-BSE-80", email: "faiq@example.com", user_name: "faiqashahzad16"};
-    f.window.testHooks.setAdminRecords([usernameOnlyProfile], [{id: "student-80__cloud", user_id: "student-80", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "B", approved: true, marks: {categories: []}}]);
-    const titleLink = f.window.document.querySelector("#users-list strong a.github-profile-link");
-    assert(titleLink, "A username used as the list title is linked without duplication");
-    assert.equal(titleLink.textContent, "faiqashahzad16");
-    assert.equal(titleLink.getAttribute("href"), "https://github.com/faiqashahzad16");
-    assert.equal(f.window.document.querySelector("#users-list a.user-item-github"), null);
+    const usernameOnlyProfile = {id: "student-79", registration_number: "2024-BSE-79", email: "nidaawajid624@gmail.com", user_name: "nidaawajid"};
+    f.window.testHooks.setAdminRecords([usernameOnlyProfile], [{id: "student-79__cloud", user_id: "student-79", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "A", approved: true, marks: {categories: []}}]);
+    const usernameOnlyLink = f.window.document.querySelector("#users-list a.user-item-github");
+    assert(usernameOnlyLink, "A separate GitHub link remains visible when the display name equals the username");
+    assert.equal(f.window.document.querySelector("#users-list strong").textContent, "nidaawajid");
+    assert.equal(usernameOnlyLink.textContent, "@nidaawajid");
+    assert.equal(usernameOnlyLink.getAttribute("href"), "https://github.com/nidaawajid");
+
+    const registrationUsernameProfile = {id: "student-38", registration_number: "2024-BSE-38", email: "fa24b1-se-038@fjwu.edu.pk", user_name: "2024-BSE-38"};
+    f.window.testHooks.setAdminRecords([registrationUsernameProfile], [{id: "student-38__cloud", user_id: "student-38", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "B", approved: true, marks: {categories: []}}]);
+    const registrationUsernameLink = f.window.document.querySelector("#users-list a.user-item-github");
+    assert(registrationUsernameLink, "A numeric and hyphenated GitHub username has a visible link");
+    assert.equal(registrationUsernameLink.textContent, "@2024-BSE-38");
+    assert.equal(registrationUsernameLink.getAttribute("href"), "https://github.com/2024-BSE-38");
 
     f.window.testHooks.renderEditorIdentity({registration_number: "2024-BSE-80", email: "student@example.com", user_name: "not/a/username"});
     assert.equal(identity.querySelector("a"), null, "An invalid username cannot create an unsafe profile link");
