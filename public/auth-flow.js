@@ -27,9 +27,6 @@ export function shouldUseMobileGithubSignIn(navigatorLike = {}) {
   return touchIpad || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(userAgent);
 }
 
-// Keep the old export for callers that imported it before the mobile flow changed.
-export const shouldUseRedirectSignIn = shouldUseMobileGithubSignIn;
-
 function sessionCookie(documentLike) {
   const prefix = `${MOBILE_GITHUB_SESSION_KEY}=`;
   return String(documentLike?.cookie || "").split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix))?.slice(prefix.length) || "";
