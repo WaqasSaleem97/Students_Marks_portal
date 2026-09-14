@@ -7,6 +7,8 @@ h1 { margin: 0 0 10px; }
 p { color: #667085; line-height: 1.55; }
 button { width: 100%; padding: 13px 18px; border: 0; border-radius: 10px; background: #24292f; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; }
 #github-login { margin-top: 18px; }
+.login-return-link { display: block; margin-top: 22px; padding: 13px 18px; border-radius: 10px; background: #24292f; color: #fff; font-size: 16px; font-weight: 700; text-decoration: none; }
+.login-return-link:hover { background: #000; }
 label { display: block; color: #475467; font-size: 13px; font-weight: 700; text-align: left; }
 input, select { width: 100%; margin-top: 7px; padding: 11px 12px; border: 1px solid #cfd6e1; border-radius: 9px; background: #fff; color: #172033; font: inherit; }
 input:focus, select:focus { outline: 3px solid rgba(44,100,246,.13); border-color: #2c64f6; }

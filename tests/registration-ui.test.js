@@ -18,7 +18,7 @@ function fixture(saved = [], options = {}) {
   window.Option = function Option(text, value) { const option = window.document.createElement("option"); option.textContent = text; option.value = value; return option; };
   const data = new Map(saved.map(range => [range.prefix, {...range}]));
   const enrollmentData = new Map((options.enrollments || []).map(item => [item.id, {...item}]));
-  const writes = []; const confirmations = []; const popupCalls = []; const redirectCalls = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
+  const writes = []; const confirmations = []; const popupCalls = []; const redirectCalls = []; const mobileAuthCalls = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
   const publish = () => listener?.({docs: [...data].map(([id, value]) => ({id, data: () => ({...value})}))});
   const applyOperations = operations => operations.forEach(operation => {
     if (operation.operation !== "delete") return;
@@ -26,7 +26,7 @@ function fixture(saved = [], options = {}) {
     if (operation.ref.name === "registration_ranges") { data.delete(operation.ref.id); publish(); }
   });
   const mock = {
-    firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {} static credentialFromResult(result) {return result?.credential || null;}}, getAdditionalUserInfo: result => result?.additionalUserInfo || null, getRedirectResult: async () => null, signInWithPopup: async (...args) => {popupCalls.push(args); return {user: {displayName: "Test User", email: "test@example.com", providerData: [{providerId: "github.com", uid: "1"}]}, additionalUserInfo: {username: "test-user", profile: {login: "test-user", id: 1}}};}, signInWithRedirect: async (...args) => {redirectCalls.push(args);}, onAuthStateChanged() {},
+    firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {} static credentialFromResult(result) {return result?.credential || null;}}, getAdditionalUserInfo: result => result?.additionalUserInfo || null, getRedirectResult: async () => null, signInWithPopup: async (...args) => {popupCalls.push(args); return {user: {displayName: "Test User", email: "test@example.com", providerData: [{providerId: "github.com", uid: "1"}]}, additionalUserInfo: {username: "test-user", profile: {login: "test-user", id: 1}}};}, signInWithRedirect: async (...args) => {redirectCalls.push(args);}, beginMobileGithubSignIn: async (...args) => {mobileAuthCalls.push(args);}, onAuthStateChanged() {},
     doc: (_db, name, id) => ({name, id}), collection: (_db, name) => ({name}), where: (field, operator, value) => ({field, operator, value}), query: (ref, ...filters) => ({...ref, filters}), serverTimestamp: () => "updated",
     getDocs: async ref => ({docs: [...enrollmentData].filter(([, value]) => ref.name === "enrollments" && (ref.filters || []).every(filter => filter.operator === "==" && value[filter.field] === filter.value)).map(([id, value]) => ({id, data: () => ({...value})}))}),
     onSnapshot: (ref, callback, error) => {assert.equal(ref.name, "registration_ranges"); listener = callback; listenerError = error; publish(); return () => {listener = null;};},
@@ -50,7 +50,7 @@ function fixture(saved = [], options = {}) {
   const submit = async id => {el(id).dispatchEvent(new window.Event("submit", {bubbles: true, cancelable: true})); await flush();};
   const fillRange = (prefix, first, last, digits) => {el("registration-prefix").value = prefix; el("registration-range-start").value = first; el("registration-range-end").value = last; el("registration-range-digits").value = digits;};
   const rangeButton = label => window.document.querySelector(`#registration-range-list button[aria-label="${label}"]`);
-  return {window, el, writes, data, enrollmentData, confirmations, popupCalls, redirectCalls, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
+  return {window, el, writes, data, enrollmentData, confirmations, popupCalls, redirectCalls, mobileAuthCalls, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
 }
 
 test("GitHub login uses a popup in desktop browsers such as Edge", async () => {
@@ -64,13 +64,14 @@ test("GitHub login uses a popup in desktop browsers such as Edge", async () => {
   } finally {await f.close();}
 });
 
-test("GitHub login keeps same-origin redirect authentication on Android", async () => {
+test("GitHub login uses the cross-tab-safe mobile flow on Android", async () => {
   const f = fixture([], {userAgent: "Mozilla/5.0 (Linux; Android 16) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36"});
   try {
     f.el("github-login").click(); await flush();
     assert.equal(f.popupCalls.length, 0);
-    assert.equal(f.redirectCalls.length, 1);
-    assert.equal(f.el("login-message").textContent, "Opening GitHub sign-in…");
+    assert.equal(f.redirectCalls.length, 0);
+    assert.equal(f.mobileAuthCalls.length, 1);
+    assert.equal(f.el("login-message").textContent, "Opening mobile GitHub sign-in…");
   } finally {await f.close();}
 });
 

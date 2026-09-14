@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Completing GitHub sign-in</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="login-card" aria-live="polite">
+    <div id="mobile-auth-spinner" class="spinner"></div>
+    <h1 id="mobile-auth-title">Completing GitHub sign-in</h1>
+    <p id="mobile-auth-message">Securely returning you to the Student Marks Portal…</p>
+    <a id="mobile-auth-return" class="login-return-link" href="/" hidden>Return to sign in</a>
+  </main>
+  <script type="module" src="/mobile-auth-callback.js"></script>
+</body>
+</html>

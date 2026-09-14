@@ -36,6 +36,8 @@ jobs:
           node --input-type=module --check < public/auth-flow.js
           node --input-type=module --check < public/bootstrap.js
           node --input-type=module --check < public/firebase-config.js
+          node --input-type=module --check < public/mobile-auth-callback.js
+          node --check public/mobile-auth-service-worker.js
           node --input-type=module --check < public/registration-ranges.js
 
       - name: Install test and deployment tools

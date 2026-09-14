@@ -1,8 +1,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
-import { getAuth, GithubAuthProvider, getAdditionalUserInfo, getRedirectResult, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
+import { getAuth, GithubAuthProvider, getAdditionalUserInfo, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
-import { shouldUseRedirectSignIn } from "./auth-flow.js";
+import { beginMobileGithubSignIn, GITHUB_PROFILE_CACHE_KEY, shouldUseMobileGithubSignIn } from "./auth-flow.js";
 import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -216,17 +216,17 @@ async function getGithubProfile(token) {
 }
 
 function cacheGithubProfile(profile) {
-  try { sessionStorage.setItem("githubProfile", JSON.stringify(profile)); }
+  try { sessionStorage.setItem(GITHUB_PROFILE_CACHE_KEY, JSON.stringify(profile)); }
   catch { /* Firebase user data still allows sign-in when browser storage is restricted. */ }
 }
 
 function cachedGithubProfile() {
-  try { return JSON.parse(sessionStorage.getItem("githubProfile") || "{}"); }
+  try { return JSON.parse(sessionStorage.getItem(GITHUB_PROFILE_CACHE_KEY) || "{}"); }
   catch { return {}; }
 }
 
 function clearCachedGithubProfile() {
-  try { sessionStorage.removeItem("githubProfile"); }
+  try { sessionStorage.removeItem(GITHUB_PROFILE_CACHE_KEY); }
   catch { /* Nothing to clear when browser storage is unavailable. */ }
 }
 
@@ -526,14 +526,12 @@ async function captureGithubProfile(result) {
   cacheGithubProfile(profile);
 }
 
-let authResultPromise = getRedirectResult(auth).then(captureGithubProfile).catch((error) => {
-  el("login-message").textContent = friendlyError(error);
-});
+let authResultPromise = Promise.resolve();
 
 el("github-login").addEventListener("click", async () => {
-  const button = el("github-login"); const redirect = shouldUseRedirectSignIn(navigator); button.disabled = true; el("login-message").textContent = redirect ? "Opening GitHub sign-in…" : "Waiting for GitHub sign-in…";
+  const button = el("github-login"); const mobile = shouldUseMobileGithubSignIn(navigator); button.disabled = true; el("login-message").textContent = mobile ? "Opening mobile GitHub sign-in…" : "Waiting for GitHub sign-in…";
   try {
-    if (redirect) { await signInWithRedirect(auth, githubProvider); return; }
+    if (mobile) { await beginMobileGithubSignIn(firebaseConfig, window); return; }
     authResultPromise = signInWithPopup(auth, githubProvider).then(async (result) => { await captureGithubProfile(result); return result; });
     await authResultPromise;
   }
