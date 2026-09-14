@@ -157,6 +157,21 @@ Authorization callback URL:
 https://YOUR_PROJECT_ID.firebaseapp.com/__/auth/handler
 ```
 
+If the portal uses a Firebase Hosting custom domain, add its exact handler as an additional redirect URL:
+
+```text
+https://YOUR_CUSTOM_DOMAIN/__/auth/handler
+```
+
+This production deployment uses `https://reportcard.qd.je` as its homepage and keeps both of these redirect URLs in the GitHub OAuth App:
+
+```text
+https://reportcard.qd.je/__/auth/handler
+https://studentsreportcard-809ae.firebaseapp.com/__/auth/handler
+```
+
+Keep wildcard matching disabled because both permitted redirects are listed exactly.
+
 Leave **Enable Device Flow** unchecked.
 
 After registering the OAuth App:
@@ -186,11 +201,12 @@ Confirm these domains exist:
 ```text
 YOUR_PROJECT_ID.web.app
 YOUR_PROJECT_ID.firebaseapp.com
+YOUR_CUSTOM_DOMAIN
 ```
 
 Use `https://YOUR_PROJECT_ID.firebaseapp.com` as the portal's canonical address. Visits to the matching `web.app` address are redirected there automatically so that the portal and Firebase's authentication handler share one origin. Mobile browsers use redirect authentication to avoid pop-up limitations, while desktop browsers use a pop-up so they do not depend on redirect state. Hosting disables caching for portal files so deployed authentication fixes reach browsers immediately.
 
-Add your custom domain later if you use one. Enter domain names without `https://`.
+Enter authorized domain names without `https://`. The current production custom domain is `reportcard.qd.je`.
 
 ## 7. Manage allowed registration numbers
 
@@ -285,7 +301,7 @@ Set up this repository secret once:
 4. Open this repository's [Actions secrets settings](https://github.com/WaqasSaleem97/Students_Marks_portal/settings/secrets/actions), choose **New repository secret**, enter the exact secret name above, and paste the entire downloaded JSON file into the secret value. Save it directly in GitHub; keep the key out of repository files and chat messages.
 5. Open [Actions > Deploy to Firebase Hosting](https://github.com/WaqasSaleem97/Students_Marks_portal/actions/workflows/firebase-hosting.yml), choose **Run workflow**, select `main`, and run it once. Adding a secret does not start a deployment by itself. Subsequent pushes to `main` trigger deployment automatically.
 
-The first workflow run will stop with a setup message if the secret is missing. After adding the secret, start a new manual run. A successful deployment publishes to [the live portal](https://studentsreportcard-809ae.firebaseapp.com). The `web.app` Hosting alias remains available and automatically sends visitors to this canonical address.
+The first workflow run will stop with a setup message if the secret is missing. After adding the secret, start a new manual run. A successful deployment publishes to [the live portal](https://reportcard.qd.je). The Firebase-provided Hosting addresses remain available as fallbacks.
 
 The workflow deploys Firestore rules before Hosting, so a failed rules deployment prevents publishing an interface that depends on unavailable permissions. Existing deployment service accounts need the additional **Firebase Rules Admin** and **Service Usage Viewer** roles; the same GitHub secret can be reused. Firestore indexes still require a separate CLI deployment. Firebase documents its GitHub Actions integration [here](https://firebase.google.com/docs/hosting/github-integration).
 
@@ -465,6 +481,8 @@ Also confirm the Firebase CLI is targeting the correct project with `firebase us
 ### GitHub button does nothing
 
 Open the browser developer console. Confirm `public/firebase-config.js` exports `firebaseConfig`, GitHub Authentication is enabled, the domains are authorized, and the OAuth callback URL ends with `/__/auth/handler`.
+
+If GitHub reports that `redirect_uri` is not associated with the application, copy the hostname from the rejected `redirect_uri` and add the exact `https://HOSTNAME/__/auth/handler` value to the OAuth App's **Redirect URLs**. For this deployment, both the custom-domain and `firebaseapp.com` handlers are registered.
 
 ### User does not see the admin panel
 
