@@ -51,6 +51,22 @@ service cloud.firestore {
              && registrationInRange(registration);
     }
 
+    function validRegistrationClaim(registration) {
+      return request.resource.data.keys().hasOnly([
+               'registration_number', 'user_id', 'user_ids', 'conflict', 'updated_at'
+             ])
+             && request.resource.data.registration_number == registration
+             && request.resource.data.user_id == request.auth.uid
+             && request.resource.data.user_ids is list
+             && request.resource.data.user_ids.size() == 1
+             && request.resource.data.user_ids[0] == request.auth.uid
+             && request.resource.data.conflict == false
+             && request.resource.data.updated_at == request.time
+             && allowedRegistration(registration)
+             // A student cannot reserve a number without creating the matching profile.
+             && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.registration_number == registration;
+    }
+
     match /admins/{adminId} {
       allow read: if signedIn() && request.auth.uid == adminId;
       allow write: if false;
@@ -73,11 +89,22 @@ service cloud.firestore {
       allow delete: if isAdmin() && prefix != '2024-BSE';
     }
 
+    match /registration_claims/{registration} {
+      // Only the first atomic claim/profile write can create a registration claim.
+      allow create: if isAdmin()
+                    || (signedIn() && !isBlocked() && validRegistrationClaim(registration));
+      // A transaction reads this exact document before attempting the unique claim.
+      allow get: if signedIn() && !isBlocked();
+      allow list, update, delete: if isAdmin();
+    }
+
     match /users/{userId} {
       allow create: if signedIn()
                     && request.auth.uid == userId
                     && !isBlocked()
                     && allowedRegistration(request.resource.data.registration_number)
+                    && getAfter(/databases/$(database)/documents/registration_claims/$(request.resource.data.registration_number)).data.user_id == userId
+                    && getAfter(/databases/$(database)/documents/registration_claims/$(request.resource.data.registration_number)).data.conflict == false
                     && request.resource.data.keys().hasOnly([
                       'first_name', 'last_name', 'created_at', 'email',
                       'github_id', 'photo_url', 'registration_number', 'user_name'

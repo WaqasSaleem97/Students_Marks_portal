@@ -9,6 +9,7 @@ Students sign in using GitHub, submit their registration number, and wait for ad
 - GitHub-only signup and sign-in
 - Firebase UID used as each user's Firestore document ID
 - Student registration-number form
+- Atomic registration-number claims so one number can belong to only one account
 - Administrator-managed registration prefixes and numeric ranges for multiple classes, with edit, disable, and delete controls
 - Administrator approval for new accounts
 - Separate student and administrator dashboards
@@ -223,6 +224,8 @@ Click **Add allowed class** to save. Use **Edit** to change a range or its numbe
 Settings are saved in Firestore's `registration_ranges` collection and update live. Until edited or disabled, the original `2024-BSE-01`–`2024-BSE-99` range remains available. Disabled entries stay saved so that this default cannot accidentally reappear. Existing students retain their profiles, marks, and ability to enroll in other courses even if their range is disabled or changed. Enrollment approval is still required.
 
 Both the form and Firestore rules enforce the ranges for new student profiles. Deploy the updated rules before publishing the new interface; the GitHub Actions workflow does this automatically.
+
+Each new profile also creates a document in `registration_claims` in the same Firestore transaction. If two accounts try the same number, the transaction retries against the latest data and only the first claim can succeed; Firestore rules enforce the same relationship between the claim and profile. When an administrator opens the **Students & Marks** tab, the portal backfills claims for older profiles. Any duplicates that existed before this protection are highlighted instead of being deleted automatically; delete the incorrect account from the enrollment list, and the claim is reassigned to the remaining account in the same batch.
 
 ## 8. Install and configure Firebase CLI
 

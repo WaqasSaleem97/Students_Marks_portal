@@ -114,8 +114,13 @@ tfoot td:last-child { border-radius: 0 0 10px 0; }
 .user-item-content { display: flex; min-width: 0; max-width: 100%; flex: 1 1 0; flex-direction: column; align-items: flex-start; gap: 4px; }
 .user-item-content > * { max-width: 100%; overflow-wrap: anywhere; }
 .user-item:hover, .user-item.active { background: #eaf0ff; border-color: #8daaf7; }
+.user-item.duplicate-registration { border-color: #e8a23a; background: #fffaf0; }
 .user-item span { color: #667085; font-size: 12px; font-weight: 500; }
 .user-item .user-item-github { font-size: 12px; }
+.registration-integrity-message { display: none; margin: 12px 0 0; padding: 10px 11px; border-radius: 9px; font-size: 12px; line-height: 1.45; }
+.registration-integrity-message.warning { display: block; border: 1px solid #f0c36b; background: #fff8e8; color: #7a4700; }
+.registration-integrity-message.error { display: block; border: 1px solid #f0a29d; background: #fff0f0; color: #b42318; }
+.user-item .duplicate-registration-badge { display: inline-flex; width: fit-content; padding: 3px 7px; border-radius: 999px; background: #fff0cf; color: #8a4b00; font-size: 10px; font-weight: 800; }
 .user-list-empty { margin: 16px 8px; color: #667085; font-size: 13px; text-align: center; }
 .pending-actions { display: flex; flex: 0 0 auto; gap: 6px; }
 .pending-action { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 9px; font-size: 20px; }
@@ -157,6 +162,7 @@ legend { padding: 0 7px; font-weight: 800; }
 .report-controls { display: grid; grid-template-columns: repeat(4, 1fr) auto; gap: 14px; align-items: end; }
 .report-controls button { width: auto; }
 .report-summary { padding: 13px 15px; background: #f7f9fc; border-radius: 10px; }
+.report-summary.duplicate-warning { border: 1px solid #f0c36b; background: #fff8e8; color: #7a4700; }
 #report-table td:nth-child(n+4), #report-table th:nth-child(n+4) { text-align: right; }
 .csv-panel { margin-top: 24px; padding: 20px; border: 1px solid #dce4f0; border-radius: 13px; background: #f8faff; }
 .csv-panel h3 { margin: 0; }

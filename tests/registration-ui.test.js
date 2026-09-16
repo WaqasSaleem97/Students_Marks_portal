@@ -18,21 +18,25 @@ function fixture(saved = [], options = {}) {
   window.Option = function Option(text, value) { const option = window.document.createElement("option"); option.textContent = text; option.value = value; return option; };
   const data = new Map(saved.map(range => [range.prefix, {...range}]));
   const enrollmentData = new Map((options.enrollments || []).map(item => [item.id, {...item}]));
-  const writes = []; const confirmations = []; const popupCalls = []; const redirectCalls = []; const mobileAuthCalls = []; let listener, listenerError, failNext = false, confirmResult = options.confirmResult ?? true;
+  const claimData = new Map((options.registrationClaims || []).map(item => [item.registration_number, {...item}]));
+  const writes = []; const confirmations = []; const popupCalls = []; const redirectCalls = []; const mobileAuthCalls = []; let listener, listenerError, failNext = false, failNextBatch = false, confirmResult = options.confirmResult ?? true;
   const publish = () => listener?.({docs: [...data].map(([id, value]) => ({id, data: () => ({...value})}))});
   const applyOperations = operations => operations.forEach(operation => {
-    if (operation.operation !== "delete") return;
-    if (operation.ref.name === "enrollments") enrollmentData.delete(operation.ref.id);
-    if (operation.ref.name === "registration_ranges") { data.delete(operation.ref.id); publish(); }
+    if (operation.operation === "set" && operation.ref.name === "registration_claims") claimData.set(operation.ref.id, {...operation.value});
+    if (operation.operation === "delete" && operation.ref.name === "registration_claims") claimData.delete(operation.ref.id);
+    if (operation.operation === "delete" && operation.ref.name === "enrollments") enrollmentData.delete(operation.ref.id);
+    if (operation.operation === "delete" && operation.ref.name === "registration_ranges") { data.delete(operation.ref.id); publish(); }
   });
+  const commitOperations = async operations => {if (failNextBatch) {failNextBatch = false; throw {code: "permission-denied"};} writes.push(...operations); applyOperations(operations);};
   const mock = {
     firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {} static credentialFromResult(result) {return result?.credential || null;}}, getAdditionalUserInfo: result => result?.additionalUserInfo || null, getRedirectResult: async () => null, signInWithPopup: async (...args) => {popupCalls.push(args); return {user: {displayName: "Test User", email: "test@example.com", providerData: [{providerId: "github.com", uid: "1"}]}, additionalUserInfo: {username: "test-user", profile: {login: "test-user", id: 1}}};}, signInWithRedirect: async (...args) => {redirectCalls.push(args);}, beginMobileGithubSignIn: async (...args) => {mobileAuthCalls.push(args);}, onAuthStateChanged() {},
     doc: (_db, name, id) => ({name, id}), collection: (_db, name) => ({name}), where: (field, operator, value) => ({field, operator, value}), query: (ref, ...filters) => ({...ref, filters}), serverTimestamp: () => "updated",
-    getDocs: async ref => ({docs: [...enrollmentData].filter(([, value]) => ref.name === "enrollments" && (ref.filters || []).every(filter => filter.operator === "==" && value[filter.field] === filter.value)).map(([id, value]) => ({id, data: () => ({...value})}))}),
+    getDocs: async ref => ({docs: (ref.name === "registration_claims" ? [...claimData] : [...enrollmentData].filter(([, value]) => ref.name === "enrollments" && (ref.filters || []).every(filter => filter.operator === "==" && value[filter.field] === filter.value))).map(([id, value]) => ({id, data: () => ({...value})}))}),
     onSnapshot: (ref, callback, error) => {assert.equal(ref.name, "registration_ranges"); listener = callback; listenerError = error; publish(); return () => {listener = null;};},
     setDoc: async (ref, value) => {await Promise.resolve(); if (failNext) {failNext = false; throw {code: "permission-denied"};} writes.push({ref, value}); data.set(ref.id, value); publish();},
     deleteDoc: async ref => {const operation = {operation: "delete", ref}; writes.push(operation); applyOperations([operation]);},
-    writeBatch: () => {const operations = []; return {set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref}), commit: async () => {writes.push(...operations); applyOperations(operations);}};},
+    writeBatch: () => {const operations = []; return {set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref}), commit: () => commitOperations(operations)};},
+    runTransaction: async (_db, updateFunction) => {const operations = []; const transaction = {get: async ref => ({exists: () => ref.name === "registration_claims" && claimData.has(ref.id), data: () => claimData.get(ref.id)}), set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref})}; const result = await updateFunction(transaction); await commitOperations(operations); return result;},
     confirm: message => {confirmations.push(message); return confirmResult;}, alert: () => {}
   };
   Object.assign(window, helpers, authHelpers, mock);
@@ -40,6 +44,8 @@ function fixture(saved = [], options = {}) {
     startRegistrationRangesListener,
     renderEditorIdentity,
     renderStudentDashboard,
+    generateReport,
+    reconcileRegistrationClaims,
     setAdminRecords(nextUsers, nextEnrollments) { users = nextUsers; enrollments = nextEnrollments; renderEnrollmentList(); },
     setProfile(profile) { currentProfile = profile; updateRegistrationRangeHelp(); },
     setup() { currentUser = {uid: "test-student"}; courses = [{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A", "B"]}]; populateCourseControls(); renderCourseList(); },
@@ -50,7 +56,7 @@ function fixture(saved = [], options = {}) {
   const submit = async id => {el(id).dispatchEvent(new window.Event("submit", {bubbles: true, cancelable: true})); await flush();};
   const fillRange = (prefix, first, last, digits) => {el("registration-prefix").value = prefix; el("registration-range-start").value = first; el("registration-range-end").value = last; el("registration-range-digits").value = digits;};
   const rangeButton = label => window.document.querySelector(`#registration-range-list button[aria-label="${label}"]`);
-  return {window, el, writes, data, enrollmentData, confirmations, popupCalls, redirectCalls, mobileAuthCalls, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
+  return {window, el, writes, data, enrollmentData, claimData, confirmations, popupCalls, redirectCalls, mobileAuthCalls, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failBatch: () => {failNextBatch = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
 }
 
 test("GitHub login uses a popup in desktop browsers such as Edge", async () => {
@@ -168,6 +174,38 @@ test("registered-user GitHub usernames open the matching profile in a new tab", 
   } finally {await f.close();}
 });
 
+test("duplicate registrations are flagged and deleting one assigns the number to the remaining account", async () => {
+  const f = fixture();
+  try {
+    const profiles = [
+      {id: "duplicate-a", first_name: "First", registration_number: "2024-BSE-38", user_name: "first-account"},
+      {id: "duplicate-b", first_name: "Alizeh", last_name: "Anwar", registration_number: "2024-BSE-38", user_name: "alizeh-anwar"}
+    ];
+    const records = profiles.map((profile, index) => ({id: `${profile.id}__cloud`, user_id: profile.id, course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "B", approved: true, marks: {categories: []}, order: index}));
+    f.window.testHooks.setAdminRecords(profiles, records);
+
+    assert.equal(f.window.document.querySelectorAll(".duplicate-registration-badge").length, 2);
+    assert.match(f.el("registration-integrity-message").textContent, /2024-BSE-38/);
+    assert.match(f.el("registration-integrity-message").textContent, /Delete the incorrect account/);
+    f.el("report-course").value = "cloud"; f.el("report-section").value = "both";
+    f.window.testHooks.generateReport();
+    assert.match(f.el("report-summary").textContent, /Warning: duplicate registration 2024-BSE-38/);
+    assert.equal(f.el("report-summary").classList.contains("duplicate-warning"), true);
+
+    await f.window.testHooks.reconcileRegistrationClaims();
+    assert.deepEqual(Array.from(f.claimData.get("2024-BSE-38").user_ids), ["duplicate-a", "duplicate-b"]);
+    assert.equal(f.claimData.get("2024-BSE-38").conflict, true);
+
+    f.writes.length = 0;
+    f.window.document.querySelector(".delete-user").click(); await flush();
+    const reassigned = f.writes.find((item) => item.operation === "set" && item.ref.name === "registration_claims");
+    assert(reassigned, "Deleting one duplicate updates the unique registration claim");
+    assert.equal(reassigned.value.user_id, "duplicate-b");
+    assert.deepEqual(Array.from(reassigned.value.user_ids), ["duplicate-b"]);
+    assert.equal(reassigned.value.conflict, false);
+  } finally {await f.close();}
+});
+
 test("course deletion requires confirmation and removes enrollments while keeping student accounts", async () => {
   const f = fixture([], {enrollments: [
     {id: "student-1__cloud", user_id: "student-1", course_id: "cloud", marks: {categories: [{name: "Quiz", items: []}]}},
@@ -281,12 +319,23 @@ test("student signup uses saved ranges and fails closed when settings cannot loa
     await f.submit("registration-form"); assert.equal(f.writes.length, 0);
     f.start(); f.el("registration-number").value = "2024-BSCS-151"; await f.submit("registration-form"); assert.equal(f.writes.length, 0);
     f.el("registration-number").value = " 2024-bscs-150 "; await f.submit("registration-form");
-    assert.equal(f.writes[0].value.registration_number, "2024-BSCS-150"); assert.equal(f.writes[1].value.approved, false);
+    assert.equal(f.writes[0].ref.name, "registration_claims"); assert.equal(f.writes[0].value.user_id, "test-student");
+    assert.equal(f.writes[1].value.registration_number, "2024-BSCS-150"); assert.equal(f.writes[2].value.approved, false);
     f.failLoad(); assert.equal(f.el("registration-submit").disabled, true);
-    await f.submit("registration-form"); assert.equal(f.writes.length, 2);
+    await f.submit("registration-form"); assert.equal(f.writes.length, 3);
     f.window.testHooks.setProfile({registration_number: "2022-BSE-49"});
     assert.equal(f.el("registration-submit").disabled, false);
     await f.submit("registration-form");
-    assert.equal(f.writes.length, 3); assert.equal(f.writes[2].ref.name, "enrollments");
+    assert.equal(f.writes.length, 4); assert.equal(f.writes[3].ref.name, "enrollments");
+  } finally {await f.close();}
+});
+
+test("a rejected unique claim gives a clear duplicate-registration message", async () => {
+  const f = fixture([{prefix: "2024-BSE", start: 1, end: 99, digits: 2, active: true}], {registrationClaims: [{registration_number: "2024-BSE-38", user_id: "original-account", user_ids: ["original-account"], conflict: false}]});
+  try {
+    f.start(); f.el("registration-course").value = "cloud"; f.el("registration-section").add(new f.window.Option("Section B", "B")); f.el("registration-section").value = "B"; f.el("registration-number").value = "2024-BSE-38";
+    await f.submit("registration-form");
+    assert.equal(f.writes.length, 0);
+    assert.match(f.el("registration-message").textContent, /already registered/);
   } finally {await f.close();}
 });

@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 import { getAuth, GithubAuthProvider, getAdditionalUserInfo, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, runTransaction, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 import { beginMobileGithubSignIn, GITHUB_PROFILE_CACHE_KEY, shouldUseMobileGithubSignIn } from "./auth-flow.js";
 import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
@@ -39,6 +39,9 @@ let unsubscribeEnrollments = null;
 let unsubscribeProfile = null;
 let unsubscribeMyEnrollments = null;
 let unsubscribeRegistrationRanges = null;
+let syncingRegistrationClaims = false;
+let registrationClaimSyncQueued = false;
+let registrationClaimSyncError = "";
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 const adminTabs = [...document.querySelectorAll(".admin-tab")];
@@ -73,6 +76,30 @@ function courseIdForCode(code) { return code.toLowerCase().replace(/[^a-z0-9]+/g
 function courseById(id) { return courses.find((course) => course.id === id); }
 function profileById(id) { return users.find((user) => user.id === id); }
 function displayName(profile = {}) { return [profile.first_name, profile.last_name].filter(Boolean).join(" ") || profile.user_name || "Student"; }
+function claimableRegistration(value) {
+  const registration = normalizeRegistration(value);
+  return registration.length <= 55 && /^[A-Z0-9]+(?:-[A-Z0-9]+)*-[0-9]{1,6}$/.test(registration) ? registration : "";
+}
+function registrationGroups(source = users) {
+  const groups = new Map();
+  source.forEach((profile) => {
+    const registration = claimableRegistration(profile.registration_number);
+    if (!registration) return;
+    if (!groups.has(registration)) groups.set(registration, []);
+    groups.get(registration).push(profile);
+  });
+  return groups;
+}
+function registrationClaimData(registration, profiles) {
+  const userIds = [...new Set(profiles.map((profile) => profile.id).filter(Boolean))].sort();
+  return { registration_number: registration, user_id: userIds.length === 1 ? userIds[0] : "", user_ids: userIds, conflict: userIds.length !== 1, updated_at: serverTimestamp() };
+}
+function registrationClaimMatches(existing, desired) {
+  return existing?.registration_number === desired.registration_number
+    && existing?.user_id === desired.user_id
+    && existing?.conflict === desired.conflict
+    && JSON.stringify(existing?.user_ids || []) === JSON.stringify(desired.user_ids);
+}
 function githubProfileUrl(username) {
   const value = String(username || "").trim();
   return /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(value) ? `https://github.com/${encodeURIComponent(value)}` : "";
@@ -320,14 +347,26 @@ el("registration-form").addEventListener("submit", async (event) => {
   if (!course || !section) { el("registration-message").textContent = "Select a valid course and section."; return; }
   if (myEnrollments.some((item) => item.course_id === courseId)) { el("registration-message").textContent = "You already have an enrollment for this course."; return; }
   try {
-    const batch = writeBatch(db);
     if (!currentProfile) {
       const gh = cachedGithubProfile(); const names = splitName(gh.name || currentUser.displayName || "");
-      batch.set(doc(db, "users", currentUser.uid), { ...names, created_at: serverTimestamp(), email: gh.email || currentUser.email || "", github_id: String(gh.id || ""), photo_url: gh.avatar_url || currentUser.photoURL || "", registration_number: registration, user_name: gh.login || "" });
+      await runTransaction(db, async (transaction) => {
+        const claimRef = doc(db, "registration_claims", registration);
+        if ((await transaction.get(claimRef)).exists()) { const error = new Error("Registration number already claimed."); error.code = "registration-already-claimed"; throw error; }
+        transaction.set(claimRef, registrationClaimData(registration, [{ id: currentUser.uid }]));
+        transaction.set(doc(db, "users", currentUser.uid), { ...names, created_at: serverTimestamp(), email: gh.email || currentUser.email || "", github_id: String(gh.id || ""), photo_url: gh.avatar_url || currentUser.photoURL || "", registration_number: registration, user_name: gh.login || "" });
+        transaction.set(doc(db, "enrollments", enrollmentId(currentUser.uid, courseId)), { user_id: currentUser.uid, course_id: courseId, course_name: course.name, course_code: course.code, section, approved: false, created_at: serverTimestamp(), marks: { categories: [] } });
+      });
+    } else {
+      const batch = writeBatch(db);
+      batch.set(doc(db, "enrollments", enrollmentId(currentUser.uid, courseId)), { user_id: currentUser.uid, course_id: courseId, course_name: course.name, course_code: course.code, section, approved: false, created_at: serverTimestamp(), marks: { categories: [] } });
+      await batch.commit();
     }
-    batch.set(doc(db, "enrollments", enrollmentId(currentUser.uid, courseId)), { user_id: currentUser.uid, course_id: courseId, course_name: course.name, course_code: course.code, section, approved: false, created_at: serverTimestamp(), marks: { categories: [] } });
-    await batch.commit(); addingAnotherCourse = false;
-  } catch (error) { el("registration-message").textContent = friendlyError(error); }
+    addingAnotherCourse = false;
+  } catch (error) {
+    el("registration-message").textContent = !currentProfile && ["registration-already-claimed", "permission-denied", "firestore/permission-denied"].includes(error?.code)
+      ? "This registration number is already registered. Use the original account or contact the administrator."
+      : friendlyError(error);
+  }
 });
 
 function renderPendingDashboard() {
@@ -356,8 +395,32 @@ function renderCategoryTable(category) {
 
 function startAdminListeners() {
   if (unsubscribeUsers) unsubscribeUsers(); if (unsubscribeEnrollments) unsubscribeEnrollments();
-  unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => { users = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); });
+  unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => { users = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); void reconcileRegistrationClaims(); });
   unsubscribeEnrollments = onSnapshot(collection(db, "enrollments"), (snapshot) => { enrollments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); refreshReportCategories(); if (!el("report-table").hidden) generateReport(); });
+}
+
+async function reconcileRegistrationClaims() {
+  if (syncingRegistrationClaims) { registrationClaimSyncQueued = true; return; }
+  syncingRegistrationClaims = true;
+  try {
+    do {
+      registrationClaimSyncQueued = false;
+      const desiredClaims = [...registrationGroups()].map(([registration, profiles]) => registrationClaimData(registration, profiles));
+      const snapshot = await getDocs(collection(db, "registration_claims"));
+      const existingClaims = new Map(snapshot.docs.map((item) => [item.id, item.data()]));
+      const changes = desiredClaims.filter((claim) => !registrationClaimMatches(existingClaims.get(claim.registration_number), claim));
+      for (let start = 0; start < changes.length; start += 450) {
+        const batch = writeBatch(db);
+        changes.slice(start, start + 450).forEach((claim) => batch.set(doc(db, "registration_claims", claim.registration_number), claim));
+        await batch.commit();
+      }
+      registrationClaimSyncError = "";
+      renderRegistrationIntegrityMessage();
+    } while (registrationClaimSyncQueued);
+  } catch (error) {
+    registrationClaimSyncError = `Registration-number protection could not be synchronized. ${friendlyError(error)}`;
+    renderRegistrationIntegrityMessage();
+  } finally { syncingRegistrationClaims = false; }
 }
 
 function setCourseMessage(message, success = false) { el("course-message").className = success ? "message success" : "message"; el("course-message").textContent = message; }
@@ -450,10 +513,23 @@ function filteredEnrollments() {
   return enrollments.filter((item) => (courseFilter === "all" || item.course_id === courseFilter) && Boolean(item.approved) === (userListMode === "users") && `${displayName(profileById(item.user_id))} ${profileById(item.user_id)?.registration_number || ""} ${item.course_name} ${item.section}`.toLowerCase().includes(search));
 }
 
+function renderRegistrationIntegrityMessage() {
+  const message = el("registration-integrity-message");
+  if (!message) return;
+  const duplicates = [...registrationGroups()].filter(([, profiles]) => profiles.length > 1).map(([registration]) => registration);
+  message.className = "registration-integrity-message";
+  if (registrationClaimSyncError) { message.classList.add("error"); message.textContent = registrationClaimSyncError; return; }
+  if (duplicates.length) {
+    message.classList.add("warning");
+    message.textContent = `${duplicates.length} duplicate registration${duplicates.length === 1 ? "" : "s"} found: ${duplicates.join(", ")}. Delete the incorrect account; the remaining account will keep the registration number.`;
+  } else message.textContent = "";
+}
+
 function renderEnrollmentList() {
-  const courseFilter = el("admin-course-filter")?.value || "all"; const scoped = enrollments.filter((item) => courseFilter === "all" || item.course_id === courseFilter); el("approved-users-count").textContent = scoped.filter((item) => item.approved).length; el("pending-users-count").textContent = scoped.filter((item) => !item.approved).length;
+  const groups = registrationGroups(); const courseFilter = el("admin-course-filter")?.value || "all"; const scoped = enrollments.filter((item) => courseFilter === "all" || item.course_id === courseFilter); el("approved-users-count").textContent = scoped.filter((item) => item.approved).length; el("pending-users-count").textContent = scoped.filter((item) => !item.approved).length;
+  renderRegistrationIntegrityMessage();
   const list = el("users-list"); list.replaceChildren(); const items = filteredEnrollments();
-  items.forEach((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const row = document.createElement("div"); row.className = `user-item${selectedEnrollmentId === enrollment.id ? " active" : ""}`; row.tabIndex = 0; const content = document.createElement("span"); content.className = "user-item-content"; const title = document.createElement("strong"); const username = String(profile.user_name || "").trim(); title.textContent = displayName(profile); content.append(title); const usernameLink = createGithubProfileLink(username, `@${username}`); if (usernameLink) { usernameLink.classList.add("user-item-github"); content.append(usernameLink); } const meta = document.createElement("span"); meta.textContent = `${profile.registration_number || "No registration"} · ${enrollment.course_name} (${enrollment.course_code}) Section ${enrollment.section}`; content.append(meta); const actions = document.createElement("span"); actions.className = "pending-actions";
+  items.forEach((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const registration = claimableRegistration(profile.registration_number); const duplicate = (groups.get(registration) || []).length > 1; const row = document.createElement("div"); row.className = `user-item${selectedEnrollmentId === enrollment.id ? " active" : ""}${duplicate ? " duplicate-registration" : ""}`; row.tabIndex = 0; const content = document.createElement("span"); content.className = "user-item-content"; const title = document.createElement("strong"); const username = String(profile.user_name || "").trim(); title.textContent = displayName(profile); content.append(title); const usernameLink = createGithubProfileLink(username, `@${username}`); if (usernameLink) { usernameLink.classList.add("user-item-github"); content.append(usernameLink); } const meta = document.createElement("span"); meta.textContent = `${profile.registration_number || "No registration"} · ${enrollment.course_name} (${enrollment.course_code}) Section ${enrollment.section}`; content.append(meta); if (duplicate) { const warning = document.createElement("span"); warning.className = "duplicate-registration-badge"; warning.textContent = "Duplicate registration"; content.append(warning); } const actions = document.createElement("span"); actions.className = "pending-actions";
     if (!enrollment.approved) actions.append(actionButton("✓", "Approve enrollment", "approve-user", (event) => approveEnrollment(event, enrollment)));
     actions.append(actionButton("E", "Delete enrollment", "delete-enrollment", (event) => deleteEnrollment(event, enrollment)));
     if (enrollment.approved) actions.append(actionButton("🗑", "Delete user and all enrollments", "delete-user", (event) => deleteUserAndEnrollments(event, enrollment.user_id, false)));
@@ -469,7 +545,17 @@ async function deleteEnrollment(event, enrollment) { if (!confirm(`Delete only t
 async function deleteUserAndEnrollments(event, userId, block) {
   const profile = profileById(userId) || {}; const message = block ? `Delete ${displayName(profile)}, remove every course enrollment and block future access?` : `Delete ${displayName(profile)} and every course enrollment? The person can register again later.`;
   if (!confirm(message)) return; event.currentTarget.disabled = true;
-  try { const batch = writeBatch(db); enrollments.filter((item) => item.user_id === userId).forEach((item) => batch.delete(doc(db, "enrollments", item.id))); batch.delete(doc(db, "users", userId)); if (block) batch.set(doc(db, "blocked_users", userId), { firebase_uid: userId, github_id: profile.github_id || "", user_name: profile.user_name || "", email: profile.email || "", registration_number: profile.registration_number || "", blocked_at: serverTimestamp(), blocked_by: currentUser.uid }); await batch.commit(); if (selectedEnrollmentId && !enrollments.some((item) => item.id === selectedEnrollmentId && item.user_id !== userId)) clearEditor(); }
+  try {
+    const batch = writeBatch(db); enrollments.filter((item) => item.user_id === userId).forEach((item) => batch.delete(doc(db, "enrollments", item.id))); batch.delete(doc(db, "users", userId));
+    const registration = claimableRegistration(profile.registration_number);
+    if (registration) {
+      const remaining = (registrationGroups().get(registration) || []).filter((item) => item.id !== userId);
+      if (remaining.length) batch.set(doc(db, "registration_claims", registration), registrationClaimData(registration, remaining));
+      else batch.delete(doc(db, "registration_claims", registration));
+    }
+    if (block) batch.set(doc(db, "blocked_users", userId), { firebase_uid: userId, github_id: profile.github_id || "", user_name: profile.user_name || "", email: profile.email || "", registration_number: profile.registration_number || "", blocked_at: serverTimestamp(), blocked_by: currentUser.uid });
+    await batch.commit(); if (selectedEnrollmentId && !enrollments.some((item) => item.id === selectedEnrollmentId && item.user_id !== userId)) clearEditor();
+  }
   catch (error) { alert(friendlyError(error)); event.currentTarget.disabled = false; }
 }
 
@@ -499,7 +585,7 @@ function generateReport() {
   const scoped = approvedReportEnrollments(); const type = el("report-type").value; const categoryName = el("report-category").value; const categoryNames = [...new Set(scoped.flatMap((item) => markCategories(item.marks).map((category) => category.name)))].sort();
   if (type === "category") { const definitions = categoryDefinition(categoryName, scoped); currentReportColumns = ["Registration", "Student", "Section", ...definitions.map((item) => item.name), "Total"]; currentReport = scoped.map((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const items = categoryItems(enrollment, categoryName); const row = { Registration: profile.registration_number || "", Student: displayName(profile), Section: enrollment.section, Total: items.reduce((sum, item) => sum + Number(item.obtained || 0), 0) }; definitions.forEach((definition) => { const item = items.find((candidate) => candidate.name.toLowerCase() === definition.name.toLowerCase()); row[definition.name] = item?.obtained ?? ""; }); return row; }); currentReportTitle = `${courseById(el("report-course").value)?.code || "course"}-${categoryName}-report`; }
   else { currentReportColumns = ["Registration", "Student", "Section", ...categoryNames]; currentReport = scoped.map((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const row = { Registration: profile.registration_number || "", Student: displayName(profile), Section: enrollment.section }; categoryNames.forEach((name) => { const score = categoryScore(enrollment, name); row[name] = score.available ? score.obtained : ""; }); return row; }); currentReportTitle = `${courseById(el("report-course").value)?.code || "course"}-overall-report`; }
-  currentReport.sort((a, b) => a.Registration.localeCompare(b.Registration)); renderReportTable(); el("report-summary").textContent = `${courseById(el("report-course").value)?.name || "Course"}, ${el("report-section").value === "both" ? "All Sections" : `Section ${el("report-section").value}`}: ${currentReport.length} approved students.`; el("csv-import-panel").hidden = false;
+  currentReport.sort((a, b) => a.Registration.localeCompare(b.Registration)); renderReportTable(); const reportRegistrationCounts = new Map(); currentReport.forEach((row) => reportRegistrationCounts.set(row.Registration, (reportRegistrationCounts.get(row.Registration) || 0) + 1)); const duplicateRegistrations = [...reportRegistrationCounts].filter(([registration, count]) => registration && count > 1).map(([registration]) => registration); const summary = el("report-summary"); summary.textContent = `${courseById(el("report-course").value)?.name || "Course"}, ${el("report-section").value === "both" ? "All Sections" : `Section ${el("report-section").value}`}: ${currentReport.length} approved students.${duplicateRegistrations.length ? ` Warning: duplicate registration${duplicateRegistrations.length === 1 ? "" : "s"} ${duplicateRegistrations.join(", ")}.` : ""}`; summary.classList.toggle("duplicate-warning", duplicateRegistrations.length > 0); el("csv-import-panel").hidden = false;
 }
 
 function renderReportTable() { const header = document.createElement("tr"); currentReportColumns.forEach((name) => { const cell = document.createElement("th"); cell.textContent = name; header.append(cell); }); el("report-head").replaceChildren(header); const body = el("report-body"); body.replaceChildren(); currentReport.forEach((row) => { const tr = document.createElement("tr"); currentReportColumns.forEach((column) => { const td = document.createElement("td"); td.textContent = row[column] === "" ? "—" : row[column]; tr.append(td); }); body.append(tr); }); el("report-table").hidden = false; el("download-report").disabled = !currentReport.length; }
@@ -540,6 +626,6 @@ el("github-login").addEventListener("click", async () => {
 el("registration-course").addEventListener("change", updateRegistrationSections); el("report-course").addEventListener("change", updateReportSections); el("report-type").addEventListener("change", () => { el("report-category-label").hidden = el("report-type").value !== "category"; }); el("admin-course-filter").addEventListener("change", renderEnrollmentList); el("user-search").addEventListener("input", renderEnrollmentList);
 el("cancel-enrollment").addEventListener("click", () => { addingAnotherCourse = false; renderStudentState(); }); el("add-course").addEventListener("click", () => openEnrollmentForm(true)); el("pending-add-course").addEventListener("click", () => openEnrollmentForm(true));
 el("add-category").addEventListener("click", () => addCategory()); document.querySelectorAll(".user-tab").forEach((button) => button.addEventListener("click", () => { userListMode = button.dataset.userView; document.querySelectorAll(".user-tab").forEach((tab) => tab.classList.toggle("active", tab === button)); renderEnrollmentList(); }));
-el("refresh-users").addEventListener("click", renderEnrollmentList); el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
+el("refresh-users").addEventListener("click", () => { renderEnrollmentList(); void reconcileRegistrationClaims(); }); el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
 
 onAuthStateChanged(auth, async (user) => { await authResultPromise; currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; clearCachedGithubProfile(); el("github-login").disabled = false; showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("github-login").disabled = false; el("login-message").textContent = friendlyError(error); showView("login-view"); } });

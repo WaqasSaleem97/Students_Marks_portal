@@ -20,7 +20,15 @@ beforeEach(async () => {
 const dbFor = uid => env.authenticatedContext(uid).firestore();
 const range = (prefix, patch = {}) => ({prefix, start: 1, end: 99, digits: 2, active: true, updated_at: serverTimestamp(), ...patch});
 const profile = registration => ({registration_number: registration});
+const claim = (uid, registration) => ({registration_number: registration, user_id: uid, user_ids: [uid], conflict: false, updated_at: serverTimestamp()});
 const enrollment = uid => ({user_id: uid, course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "A", approved: false, marks: {categories: []}});
+const createProfile = (uid, registration, includeEnrollment = false) => {
+  const db = dbFor(uid), batch = writeBatch(db);
+  batch.set(doc(db, "registration_claims", registration), claim(uid, registration));
+  batch.set(doc(db, "users", uid), profile(registration));
+  if (includeEnrollment) batch.set(doc(db, "enrollments", `${uid}__cloud`), enrollment(uid));
+  return batch.commit();
+};
 
 test("only admins can change allowed ranges; authenticated students can read", async () => {
   const admin = dbFor("admin"), student = dbFor("student");
@@ -33,32 +41,58 @@ test("only admins can change allowed ranges; authenticated students can read", a
   await assertSucceeds(setDoc(doc(admin, "registration_ranges", "2024-BSE"), range("2024-BSE")));
   await assertFails(deleteDoc(doc(admin, "registration_ranges", "2024-BSE")));
   await assertSucceeds(setDoc(doc(admin, "registration_ranges", "2024-BSE"), range("2024-BSE", {active: false, deleted: true})));
-  await assertFails(setDoc(doc(student, "users", "student"), profile("2024-BSE-01")));
+  await assertFails(createProfile("student", "2024-BSE-01"));
   for (const patch of [{start: 0}, {end: 100}, {digits: 7}, {start: 2.5}, {prefix: "WRONG"}, {active: "yes"}, {deleted: false}, {deleted: "yes"}, {updated_at: "not-a-timestamp"}, {unexpected: true}]) await assertFails(setDoc(doc(admin, "registration_ranges", "2022-BSE"), range("2022-BSE", patch)));
 });
 
-test("multiple classes and numeric boundaries are enforced on direct profile writes", async () => {
+test("multiple classes and numeric boundaries are enforced on atomic registration claims", async () => {
   const admin = dbFor("admin");
   await setDoc(doc(admin, "registration_ranges", "2022-BSE"), range("2022-BSE"));
   await setDoc(doc(admin, "registration_ranges", "2024-BSCS"), range("2024-BSCS", {start: 10, end: 150, digits: 3}));
   await setDoc(doc(admin, "registration_ranges", "2025-BSE"), range("2025-BSE", {start: 49, end: 49, digits: 3}));
   const allowed = ["2024-BSE-01", "2024-BSE-99", "2022-BSE-01", "2022-BSE-99", "2024-BSCS-010", "2024-BSCS-150", "2025-BSE-049"];
   const denied = ["2024-BSE-00", "2024-BSE-100", "2022-BSE-1", "2022-BSE-001", "2024-BSCS-009", "2024-BSCS-151", "2025-BSE-050", "2026-BSE-01", "2022/BSE-01", "2024-BSCS-1e2", "2022-BSE--01", "", 42];
-  for (const [i, registration] of allowed.entries()) {const uid = `valid-${i}`; await assertSucceeds(setDoc(doc(dbFor(uid), "users", uid), profile(registration)));}
-  for (const [i, registration] of denied.entries()) {const uid = `invalid-${i}`; await assertFails(setDoc(doc(dbFor(uid), "users", uid), profile(registration)));}
+  for (const [i, registration] of allowed.entries()) {const uid = `valid-${i}`; await assertSucceeds(createProfile(uid, registration));}
+  for (const [i, registration] of denied.entries()) {const uid = `invalid-${i}`; await assertFails(createProfile(uid, registration));}
 });
 
 test("new profile and enrollment succeed together; orphan enrollments and bypasses fail", async () => {
-  const db = dbFor("new-student"); const batch = writeBatch(db);
-  batch.set(doc(db, "users", "new-student"), profile("2024-BSE-01"));
-  batch.set(doc(db, "enrollments", "new-student__cloud"), enrollment("new-student"));
-  await assertSucceeds(batch.commit());
+  const db = dbFor("new-student");
+  await assertSucceeds(createProfile("new-student", "2024-BSE-01", true));
   await assertFails(setDoc(doc(dbFor("orphan"), "enrollments", "orphan__cloud"), enrollment("orphan")));
   const invalid = dbFor("invalid"); const invalidBatch = writeBatch(invalid);
+  invalidBatch.set(doc(invalid, "registration_claims", "2026-BSE-01"), claim("invalid", "2026-BSE-01"));
   invalidBatch.set(doc(invalid, "users", "invalid"), profile("2026-BSE-01"));
   invalidBatch.set(doc(invalid, "enrollments", "invalid__cloud"), enrollment("invalid"));
   await assertFails(invalidBatch.commit());
   await assertFails(updateDoc(doc(db, "enrollments", "new-student__cloud"), {approved: true}));
+});
+
+test("a registration number can be claimed by only one account", async () => {
+  await assertFails(setDoc(doc(dbFor("profile-only"), "users", "profile-only"), profile("2024-BSE-37")));
+  await assertFails(setDoc(doc(dbFor("claim-only"), "registration_claims", "2024-BSE-37"), claim("claim-only", "2024-BSE-37")));
+
+  await assertSucceeds(createProfile("first-account", "2024-BSE-38"));
+  await assertFails(createProfile("second-account", "2024-BSE-38"));
+  assert.equal((await getDoc(doc(dbFor("admin"), "registration_claims", "2024-BSE-38"))).data().user_id, "first-account");
+  await assertSucceeds(getDoc(doc(dbFor("second-account"), "registration_claims", "2024-BSE-38")));
+  await assertFails(getDocs(collection(dbFor("second-account"), "registration_claims")));
+  await assertFails(updateDoc(doc(dbFor("first-account"), "registration_claims", "2024-BSE-38"), {user_id: "second-account"}));
+});
+
+test("admins can reserve a legacy duplicate and reassign it when one account is removed", async () => {
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, "users", "legacy-a"), profile("2024-BSE-38"));
+    await setDoc(doc(db, "users", "legacy-b"), profile("2024-BSE-38"));
+  });
+  const admin = dbFor("admin"), claimRef = doc(admin, "registration_claims", "2024-BSE-38");
+  await assertSucceeds(setDoc(claimRef, {registration_number: "2024-BSE-38", user_id: "", user_ids: ["legacy-a", "legacy-b"], conflict: true, updated_at: serverTimestamp()}));
+  const batch = writeBatch(admin);
+  batch.delete(doc(admin, "users", "legacy-a"));
+  batch.set(claimRef, {registration_number: "2024-BSE-38", user_id: "legacy-b", user_ids: ["legacy-b"], conflict: false, updated_at: serverTimestamp()});
+  await assertSucceeds(batch.commit());
+  assert.equal((await getDoc(claimRef)).data().user_id, "legacy-b");
 });
 
 test("course deletion is restricted to admins and supports deleting linked enrollments", async () => {
@@ -81,11 +115,11 @@ test("disabling the default blocks new profiles and preserves existing students 
     await setDoc(doc(context.firestore(), "enrollments", "existing__old"), {...enrollment("existing"), course_id: "old", approved: true, marks});
   });
   await assertSucceeds(setDoc(doc(admin, "registration_ranges", "2024-BSE"), range("2024-BSE", {active: false})));
-  await assertFails(setDoc(doc(dbFor("new"), "users", "new"), profile("2024-BSE-01")));
+  await assertFails(createProfile("new", "2024-BSE-01"));
   const existing = dbFor("existing");
   await assertSucceeds(getDoc(doc(existing, "users", "existing")));
   await assertSucceeds(setDoc(doc(existing, "enrollments", "existing__cloud"), enrollment("existing")));
   assert.deepEqual((await getDoc(doc(existing, "enrollments", "existing__old"))).data().marks, marks);
   await assertSucceeds(setDoc(doc(admin, "registration_ranges", "2024-BSE"), range("2024-BSE")));
-  await assertSucceeds(setDoc(doc(dbFor("new"), "users", "new"), profile("2024-BSE-01")));
+  await assertSucceeds(createProfile("new", "2024-BSE-01"));
 });
