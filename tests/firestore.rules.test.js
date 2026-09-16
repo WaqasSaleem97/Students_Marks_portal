@@ -53,7 +53,14 @@ test("multiple classes and numeric boundaries are enforced on atomic registratio
   const allowed = ["2024-BSE-01", "2024-BSE-99", "2022-BSE-01", "2022-BSE-99", "2024-BSCS-010", "2024-BSCS-150", "2025-BSE-049"];
   const denied = ["2024-BSE-00", "2024-BSE-100", "2022-BSE-1", "2022-BSE-001", "2024-BSCS-009", "2024-BSCS-151", "2025-BSE-050", "2026-BSE-01", "2022/BSE-01", "2024-BSCS-1e2", "2022-BSE--01", "", 42];
   for (const [i, registration] of allowed.entries()) {const uid = `valid-${i}`; await assertSucceeds(createProfile(uid, registration));}
-  for (const [i, registration] of denied.entries()) {const uid = `invalid-${i}`; await assertFails(createProfile(uid, registration));}
+  for (const [i, registration] of denied.entries()) {
+    const uid = `invalid-${i}`;
+    // Empty, non-string, and slash-containing values cannot be Firestore document IDs.
+    const write = typeof registration === "string" && registration && !registration.includes("/")
+      ? createProfile(uid, registration)
+      : setDoc(doc(dbFor(uid), "users", uid), profile(registration));
+    await assertFails(write);
+  }
 });
 
 test("new profile and enrollment succeed together; orphan enrollments and bypasses fail", async () => {
