@@ -19,7 +19,7 @@ function fixture(saved = [], options = {}) {
   const data = new Map(saved.map(range => [range.prefix, {...range}]));
   const enrollmentData = new Map((options.enrollments || []).map(item => [item.id, {...item}]));
   const claimData = new Map((options.registrationClaims || []).map(item => [item.registration_number, {...item}]));
-  const writes = []; const confirmations = []; const popupCalls = []; const redirectCalls = []; const mobileAuthCalls = []; let listener, listenerError, failNext = false, failNextBatch = false, confirmResult = options.confirmResult ?? true;
+  const writes = []; const confirmations = []; const popupCalls = []; const redirectCalls = []; const mobileAuthCalls = []; const githubFetches = []; let listener, listenerError, failNext = false, failNextBatch = false, confirmResult = options.confirmResult ?? true;
   const publish = () => listener?.({docs: [...data].map(([id, value]) => ({id, data: () => ({...value})}))});
   const applyOperations = operations => operations.forEach(operation => {
     if (operation.operation === "set" && operation.ref.name === "registration_claims") claimData.set(operation.ref.id, {...operation.value});
@@ -31,9 +31,11 @@ function fixture(saved = [], options = {}) {
   const mock = {
     firebaseConfig: {}, initializeApp: () => ({}), getAuth: () => ({}), getFirestore: () => ({}), GithubAuthProvider: class {addScope() {} static credentialFromResult(result) {return result?.credential || null;}}, getAdditionalUserInfo: result => result?.additionalUserInfo || null, getRedirectResult: async () => null, signInWithPopup: async (...args) => {popupCalls.push(args); return {user: {displayName: "Test User", email: "test@example.com", providerData: [{providerId: "github.com", uid: "1"}]}, additionalUserInfo: {username: "test-user", profile: {login: "test-user", id: 1}}};}, signInWithRedirect: async (...args) => {redirectCalls.push(args);}, beginMobileGithubSignIn: async (...args) => {mobileAuthCalls.push(args);}, onAuthStateChanged() {},
     doc: (_db, name, id) => ({name, id}), collection: (_db, name) => ({name}), where: (field, operator, value) => ({field, operator, value}), query: (ref, ...filters) => ({...ref, filters}), serverTimestamp: () => "updated",
+    fetch: async (url, request) => {githubFetches.push({url, request}); return options.fetch ? options.fetch(url, request) : {ok: false, json: async () => ({})};},
     getDocs: async ref => ({docs: (ref.name === "registration_claims" ? [...claimData] : [...enrollmentData].filter(([, value]) => ref.name === "enrollments" && (ref.filters || []).every(filter => filter.operator === "==" && value[filter.field] === filter.value))).map(([id, value]) => ({id, data: () => ({...value})}))}),
     onSnapshot: (ref, callback, error) => {assert.equal(ref.name, "registration_ranges"); listener = callback; listenerError = error; publish(); return () => {listener = null;};},
     setDoc: async (ref, value) => {await Promise.resolve(); if (failNext) {failNext = false; throw {code: "permission-denied"};} writes.push({ref, value}); data.set(ref.id, value); publish();},
+    updateDoc: async (ref, value) => {writes.push({operation: "update", ref, value});},
     deleteDoc: async ref => {const operation = {operation: "delete", ref}; writes.push(operation); applyOperations([operation]);},
     writeBatch: () => {const operations = []; return {set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref}), commit: () => commitOperations(operations)};},
     runTransaction: async (_db, updateFunction) => {const operations = []; const transaction = {get: async ref => ({exists: () => ref.name === "registration_claims" && claimData.has(ref.id), data: () => claimData.get(ref.id)}), set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref})}; const result = await updateFunction(transaction); await commitOperations(operations); return result;},
@@ -46,7 +48,9 @@ function fixture(saved = [], options = {}) {
     renderStudentDashboard,
     generateReport,
     reconcileRegistrationClaims,
+    repairMissingGithubProfiles,
     setAdminRecords(nextUsers, nextEnrollments) { users = nextUsers; enrollments = nextEnrollments; renderEnrollmentList(); },
+    setCurrentUser(user) { currentUser = user; },
     setProfile(profile) { currentProfile = profile; updateRegistrationRangeHelp(); },
     setup() { currentUser = {uid: "test-student"}; courses = [{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A", "B"]}]; populateCourseControls(); renderCourseList(); },
     stopListeners
@@ -56,7 +60,7 @@ function fixture(saved = [], options = {}) {
   const submit = async id => {el(id).dispatchEvent(new window.Event("submit", {bubbles: true, cancelable: true})); await flush();};
   const fillRange = (prefix, first, last, digits) => {el("registration-prefix").value = prefix; el("registration-range-start").value = first; el("registration-range-end").value = last; el("registration-range-digits").value = digits;};
   const rangeButton = label => window.document.querySelector(`#registration-range-list button[aria-label="${label}"]`);
-  return {window, el, writes, data, enrollmentData, claimData, confirmations, popupCalls, redirectCalls, mobileAuthCalls, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failBatch: () => {failNextBatch = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
+  return {window, el, writes, data, enrollmentData, claimData, confirmations, popupCalls, redirectCalls, mobileAuthCalls, githubFetches, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failBatch: () => {failNextBatch = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
 }
 
 test("GitHub login uses a popup in desktop browsers such as Edge", async () => {
@@ -327,6 +331,34 @@ test("student signup uses saved ranges and fails closed when settings cannot loa
     assert.equal(f.el("registration-submit").disabled, false);
     await f.submit("registration-form");
     assert.equal(f.writes.length, 4); assert.equal(f.writes[3].ref.name, "enrollments");
+  } finally {await f.close();}
+});
+
+test("student signup recovers GitHub username and ID when the temporary cache is empty", async () => {
+  const avatar = "https://avatars.githubusercontent.com/u/327825772?v=4";
+  const f = fixture([{prefix: "2024-BSE", start: 1, end: 99, digits: 2, active: true}], {fetch: async () => ({ok: true, json: async () => ({id: 327825772, login: "iraj-github", name: "Iraj Taimur Malik", avatar_url: avatar})})});
+  try {
+    f.window.sessionStorage.clear();
+    f.window.testHooks.setCurrentUser({uid: "firebase-iraj", displayName: "Iraj Taimur Malik", email: "irajtaimur@gmail.com", photoURL: avatar, providerData: [{providerId: "github.com", uid: "327825772", photoURL: avatar}]});
+    f.start(); f.el("registration-course").value = "cloud"; f.el("registration-section").add(new f.window.Option("Section A", "A")); f.el("registration-section").value = "A"; f.el("registration-number").value = "2024-BSE-15";
+    await f.submit("registration-form");
+    const profileWrite = f.writes.find((item) => item.ref?.name === "users");
+    assert(profileWrite, "The student profile is created");
+    assert.equal(profileWrite.value.github_id, "327825772");
+    assert.equal(profileWrite.value.user_name, "iraj-github");
+    assert.equal(f.githubFetches[0].url, "https://api.github.com/user/327825772");
+  } finally {await f.close();}
+});
+
+test("an admin repairs an existing blank GitHub identity from its avatar account ID", async () => {
+  const avatar = "https://avatars.githubusercontent.com/u/327825772?v=4";
+  const f = fixture([], {fetch: async () => ({ok: true, json: async () => ({id: 327825772, login: "iraj-github", avatar_url: avatar})})});
+  try {
+    await f.window.testHooks.repairMissingGithubProfiles([{id: "firebase-iraj", github_id: "", user_name: "", photo_url: avatar}], true);
+    const update = f.writes.find((item) => item.operation === "update" && item.ref?.name === "users");
+    assert(update, "The existing profile is updated");
+    assert.equal(update.ref.id, "firebase-iraj");
+    assert.deepEqual({...update.value}, {github_id: "327825772", user_name: "iraj-github"});
   } finally {await f.close();}
 });
 

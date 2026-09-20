@@ -1,7 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 import { getAuth, GithubAuthProvider, signInWithCredential } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { firebaseConfig } from "./firebase-config.js";
-import { completeMobileGithubSignIn, GITHUB_PROFILE_CACHE_KEY, MOBILE_GITHUB_RESULT_PATH } from "./auth-flow.js";
+import { completeMobileGithubSignIn, githubProfileFromFirebaseUser, GITHUB_PROFILE_CACHE_KEY, mergeGithubProfiles, MOBILE_GITHUB_RESULT_PATH } from "./auth-flow.js";
 
 const title = document.getElementById("mobile-auth-title");
 const message = document.getElementById("mobile-auth-message");
@@ -12,15 +12,11 @@ function cacheGithubProfile(exchange, user) {
   let rawProfile = {};
   try { rawProfile = JSON.parse(exchange.rawUserInfo || "{}"); }
   catch { /* Firebase user data below is enough to continue. */ }
-  const provider = user.providerData?.find((item) => item.providerId === "github.com") || {};
-  const profile = {
+  const profile = mergeGithubProfiles(githubProfileFromFirebaseUser(user), {
     ...rawProfile,
-    login: rawProfile.login || exchange.screenName || "",
-    id: rawProfile.id || provider.uid || "",
-    name: rawProfile.name || user.displayName || "",
-    email: rawProfile.email || user.email || "",
-    avatar_url: rawProfile.avatar_url || user.photoURL || ""
-  };
+    firebase_uid: user.uid || "",
+    login: rawProfile.login || exchange.screenName || ""
+  });
   try { sessionStorage.setItem(GITHUB_PROFILE_CACHE_KEY, JSON.stringify(profile)); }
   catch { /* Firebase provider data still permits sign-in. */ }
 }

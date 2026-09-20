@@ -19,6 +19,79 @@ export const MOBILE_GITHUB_SESSION_KEY = "studentMarksGithubMobileAuth";
 export const MOBILE_GITHUB_SERVICE_WORKER_PATH = "/mobile-auth-service-worker.js";
 const MOBILE_GITHUB_SESSION_TTL = 15 * 60 * 1000;
 const IDENTITY_TOOLKIT_ORIGIN = "https://identitytoolkit.googleapis.com";
+const GITHUB_API_ORIGIN = "https://api.github.com";
+
+function profileText(value) { return value === null || value === undefined ? "" : String(value).trim(); }
+
+export function githubAccountId(profile = {}) {
+  const explicitId = profileText(profile.github_id);
+  if (/^\d+$/.test(explicitId)) return explicitId;
+  const avatarUrl = profileText(profile.avatar_url || profile.photo_url);
+  try {
+    const url = new URL(avatarUrl);
+    const match = url.protocol === "https:" && url.hostname.toLowerCase() === "avatars.githubusercontent.com"
+      ? url.pathname.match(/^\/u\/(\d+)(?:\/|$)/)
+      : null;
+    if (match) return match[1];
+  } catch { /* A missing or non-GitHub avatar cannot identify the account. */ }
+  const apiId = profileText(profile.id);
+  return /^\d+$/.test(apiId) ? apiId : "";
+}
+
+export function githubProfileFromFirebaseUser(user = {}) {
+  const provider = user.providerData?.find((item) => item.providerId === "github.com") || {};
+  const avatarUrl = provider.photoURL || user.photoURL || "";
+  return {
+    firebase_uid: profileText(user.uid),
+    login: "",
+    id: profileText(provider.uid) || githubAccountId({ avatar_url: avatarUrl }),
+    name: profileText(provider.displayName || user.displayName),
+    email: profileText(provider.email || user.email),
+    avatar_url: profileText(avatarUrl)
+  };
+}
+
+export function mergeGithubProfiles(...sources) {
+  const merged = { firebase_uid: "", login: "", id: "", name: "", email: "", avatar_url: "" };
+  sources.forEach((source = {}) => {
+    const values = {
+      firebase_uid: source.firebase_uid,
+      login: source.login || source.user_name,
+      id: source.github_id || source.id,
+      name: source.name,
+      email: source.email,
+      avatar_url: source.avatar_url || source.photo_url
+    };
+    Object.entries(values).forEach(([key, value]) => { const text = profileText(value); if (text) merged[key] = text; });
+  });
+  if (!merged.id) merged.id = githubAccountId(merged);
+  return merged;
+}
+
+export async function fetchGithubProfileById(accountId, fetchImpl = globalThis.fetch) {
+  const id = profileText(accountId);
+  if (!/^\d+$/.test(id) || typeof fetchImpl !== "function") return null;
+  try {
+    const response = await fetchImpl(`${GITHUB_API_ORIGIN}/user/${encodeURIComponent(id)}`, {
+      headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" }
+    });
+    if (!response.ok) return null;
+    const profile = await response.json();
+    return profile?.login ? profile : null;
+  } catch { return null; }
+}
+
+export async function resolveGithubProfile(user = {}, cachedProfile = {}, fetchImpl = globalThis.fetch) {
+  const firebaseProfile = githubProfileFromFirebaseUser(user);
+  const cachedUid = profileText(cachedProfile.firebase_uid);
+  const safeCache = cachedUid && firebaseProfile.firebase_uid && cachedUid !== firebaseProfile.firebase_uid ? {} : cachedProfile;
+  let profile = mergeGithubProfiles(firebaseProfile, safeCache);
+  if (!profile.login && profile.id) {
+    const remoteProfile = await fetchGithubProfileById(profile.id, fetchImpl);
+    if (remoteProfile) profile = mergeGithubProfiles(profile, remoteProfile);
+  }
+  return profile;
+}
 
 export function shouldUseMobileGithubSignIn(navigatorLike = {}) {
   if (navigatorLike.userAgentData?.mobile === true) return true;

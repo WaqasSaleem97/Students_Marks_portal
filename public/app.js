@@ -2,7 +2,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebas
 import { getAuth, GithubAuthProvider, getAdditionalUserInfo, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
 import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, runTransaction, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
-import { beginMobileGithubSignIn, GITHUB_PROFILE_CACHE_KEY, shouldUseMobileGithubSignIn } from "./auth-flow.js";
+import { beginMobileGithubSignIn, fetchGithubProfileById, githubAccountId, githubProfileFromFirebaseUser, GITHUB_PROFILE_CACHE_KEY, mergeGithubProfiles, resolveGithubProfile, shouldUseMobileGithubSignIn } from "./auth-flow.js";
 import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
@@ -42,6 +42,7 @@ let unsubscribeRegistrationRanges = null;
 let syncingRegistrationClaims = false;
 let registrationClaimSyncQueued = false;
 let registrationClaimSyncError = "";
+const githubProfileRepairAttempts = new Set();
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 const adminTabs = [...document.querySelectorAll(".admin-tab")];
@@ -247,8 +248,11 @@ function cacheGithubProfile(profile) {
   catch { /* Firebase user data still allows sign-in when browser storage is restricted. */ }
 }
 
-function cachedGithubProfile() {
-  try { return JSON.parse(sessionStorage.getItem(GITHUB_PROFILE_CACHE_KEY) || "{}"); }
+function cachedGithubProfile(user = currentUser) {
+  try {
+    const profile = JSON.parse(sessionStorage.getItem(GITHUB_PROFILE_CACHE_KEY) || "{}");
+    return profile.firebase_uid && user?.uid && profile.firebase_uid !== user.uid ? {} : profile;
+  }
   catch { return {}; }
 }
 
@@ -348,7 +352,7 @@ el("registration-form").addEventListener("submit", async (event) => {
   if (myEnrollments.some((item) => item.course_id === courseId)) { el("registration-message").textContent = "You already have an enrollment for this course."; return; }
   try {
     if (!currentProfile) {
-      const gh = cachedGithubProfile(); const names = splitName(gh.name || currentUser.displayName || "");
+      const gh = await resolveGithubProfile(currentUser, cachedGithubProfile(currentUser), fetch); cacheGithubProfile(gh); const names = splitName(gh.name || currentUser.displayName || "");
       await runTransaction(db, async (transaction) => {
         const claimRef = doc(db, "registration_claims", registration);
         if ((await transaction.get(claimRef)).exists()) { const error = new Error("Registration number already claimed."); error.code = "registration-already-claimed"; throw error; }
@@ -395,8 +399,27 @@ function renderCategoryTable(category) {
 
 function startAdminListeners() {
   if (unsubscribeUsers) unsubscribeUsers(); if (unsubscribeEnrollments) unsubscribeEnrollments();
-  unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => { users = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); void reconcileRegistrationClaims(); });
+  unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => { users = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); void reconcileRegistrationClaims(); void repairMissingGithubProfiles(); });
   unsubscribeEnrollments = onSnapshot(collection(db, "enrollments"), (snapshot) => { enrollments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); refreshReportCategories(); if (!el("report-table").hidden) generateReport(); });
+}
+
+async function repairMissingGithubProfiles(profiles = users, retry = false) {
+  const candidates = profiles.filter((profile) => (!String(profile.github_id || "").trim() || !String(profile.user_name || "").trim()) && githubAccountId(profile));
+  await Promise.all(candidates.map(async (profile) => {
+    const accountId = githubAccountId(profile); const attemptKey = `${profile.id}:${accountId}`;
+    const missingUsername = !String(profile.user_name || "").trim();
+    if (retry) githubProfileRepairAttempts.delete(attemptKey);
+    if (githubProfileRepairAttempts.has(attemptKey)) return;
+    githubProfileRepairAttempts.add(attemptKey);
+    const remote = await fetchGithubProfileById(accountId, fetch);
+    if (!remote) { githubProfileRepairAttempts.delete(attemptKey); return; }
+    const patch = {};
+    if (!String(profile.github_id || "").trim()) patch.github_id = String(remote.id || accountId);
+    if (missingUsername) patch.user_name = String(remote.login || "").trim();
+    if (!Object.keys(patch).length || (missingUsername && !patch.user_name)) return;
+    try { await updateDoc(doc(db, "users", profile.id), patch); }
+    catch { githubProfileRepairAttempts.delete(attemptKey); }
+  }));
 }
 
 async function reconcileRegistrationClaims() {
@@ -604,9 +627,9 @@ function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnr
 async function captureGithubProfile(result) {
   if (!result) return;
   const additional = getAdditionalUserInfo(result); const provider = result.user?.providerData?.find((item) => item.providerId === "github.com") || {};
-  let profile = { ...(additional?.profile || {}), login: additional?.profile?.login || additional?.username || "", id: additional?.profile?.id || provider.uid || "", name: additional?.profile?.name || result.user?.displayName || "", email: additional?.profile?.email || result.user?.email || "", avatar_url: additional?.profile?.avatar_url || result.user?.photoURL || "" };
+  let profile = mergeGithubProfiles(githubProfileFromFirebaseUser(result.user), { ...(additional?.profile || {}), firebase_uid: result.user?.uid || "", login: additional?.profile?.login || additional?.username || "", id: additional?.profile?.id || provider.uid || "", name: additional?.profile?.name || result.user?.displayName || "", email: additional?.profile?.email || result.user?.email || "", avatar_url: additional?.profile?.avatar_url || result.user?.photoURL || "" });
   if (!profile.login) {
-    try { const credential = GithubAuthProvider.credentialFromResult(result); if (credential?.accessToken) profile = { ...profile, ...await getGithubProfile(credential.accessToken) }; }
+    try { const credential = GithubAuthProvider.credentialFromResult(result); if (credential?.accessToken) profile = mergeGithubProfiles(profile, await getGithubProfile(credential.accessToken)); }
     catch { /* The signed-in Firebase user can continue with provider data. */ }
   }
   cacheGithubProfile(profile);
@@ -626,6 +649,6 @@ el("github-login").addEventListener("click", async () => {
 el("registration-course").addEventListener("change", updateRegistrationSections); el("report-course").addEventListener("change", updateReportSections); el("report-type").addEventListener("change", () => { el("report-category-label").hidden = el("report-type").value !== "category"; }); el("admin-course-filter").addEventListener("change", renderEnrollmentList); el("user-search").addEventListener("input", renderEnrollmentList);
 el("cancel-enrollment").addEventListener("click", () => { addingAnotherCourse = false; renderStudentState(); }); el("add-course").addEventListener("click", () => openEnrollmentForm(true)); el("pending-add-course").addEventListener("click", () => openEnrollmentForm(true));
 el("add-category").addEventListener("click", () => addCategory()); document.querySelectorAll(".user-tab").forEach((button) => button.addEventListener("click", () => { userListMode = button.dataset.userView; document.querySelectorAll(".user-tab").forEach((tab) => tab.classList.toggle("active", tab === button)); renderEnrollmentList(); }));
-el("refresh-users").addEventListener("click", () => { renderEnrollmentList(); void reconcileRegistrationClaims(); }); el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
+el("refresh-users").addEventListener("click", () => { renderEnrollmentList(); void reconcileRegistrationClaims(); void repairMissingGithubProfiles(users, true); }); el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
 
 onAuthStateChanged(auth, async (user) => { await authResultPromise; currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; clearCachedGithubProfile(); el("github-login").disabled = false; showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("github-login").disabled = false; el("login-message").textContent = friendlyError(error); showView("login-view"); } });

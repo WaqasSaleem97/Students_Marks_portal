@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { beginMobileGithubSignIn, canonicalAuthUrl, completeMobileGithubSignIn, MOBILE_GITHUB_SESSION_KEY, shouldUseMobileGithubSignIn } from "../public/auth-flow.js";
+import { beginMobileGithubSignIn, canonicalAuthUrl, completeMobileGithubSignIn, githubAccountId, githubProfileFromFirebaseUser, MOBILE_GITHUB_SESSION_KEY, resolveGithubProfile, shouldUseMobileGithubSignIn } from "../public/auth-flow.js";
 
 const config = {
   apiKey: "test-api-key",
@@ -26,6 +26,34 @@ test("desktop browsers use a popup while mobile browsers use the mobile flow", (
   assert.equal(shouldUseMobileGithubSignIn({userAgent: "Mozilla/5.0 (Android 16; Mobile) AppleWebKit/537.36 Chrome/140 Mobile Safari/537.36"}), true);
   assert.equal(shouldUseMobileGithubSignIn({userAgentData: {mobile: true}, userAgent: "Chromium"}), true);
   assert.equal(shouldUseMobileGithubSignIn({platform: "MacIntel", maxTouchPoints: 5, userAgent: "Mozilla/5.0 (Macintosh)"}), true);
+});
+
+test("Firebase GitHub provider data supplies the numeric account ID", () => {
+  const user = {uid: "firebase-user", displayName: "Iraj Taimur Malik", email: "irajtaimur@gmail.com", photoURL: "https://avatars.githubusercontent.com/u/327825772?v=4", providerData: [{providerId: "github.com", uid: "327825772"}]};
+  const profile = githubProfileFromFirebaseUser(user);
+  assert.equal(profile.firebase_uid, "firebase-user");
+  assert.equal(profile.id, "327825772");
+  assert.equal(githubAccountId({photo_url: user.photoURL}), "327825772");
+});
+
+test("a restored Firebase session recovers a missing GitHub username by account ID", async () => {
+  const calls = [];
+  const user = {uid: "firebase-user", displayName: "Iraj Taimur Malik", email: "irajtaimur@gmail.com", photoURL: "https://avatars.githubusercontent.com/u/327825772?v=4", providerData: [{providerId: "github.com", uid: "327825772"}]};
+  const profile = await resolveGithubProfile(user, {}, async (url, options) => {
+    calls.push({url, options});
+    return {ok: true, json: async () => ({id: 327825772, login: "iraj-github", name: "Iraj Taimur Malik", avatar_url: user.photoURL})};
+  });
+  assert.equal(calls[0].url, "https://api.github.com/user/327825772");
+  assert.equal(profile.id, "327825772");
+  assert.equal(profile.login, "iraj-github");
+  assert.equal(profile.email, "irajtaimur@gmail.com");
+});
+
+test("a cached GitHub profile cannot leak into a different Firebase account", async () => {
+  const user = {uid: "new-user", providerData: [{providerId: "github.com", uid: "22"}]};
+  const profile = await resolveGithubProfile(user, {firebase_uid: "old-user", id: "11", login: "wrong-user"}, async () => ({ok: true, json: async () => ({id: 22, login: "correct-user"})}));
+  assert.equal(profile.id, "22");
+  assert.equal(profile.login, "correct-user");
 });
 
 function memoryStorage() {
