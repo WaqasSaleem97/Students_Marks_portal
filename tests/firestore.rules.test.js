@@ -114,6 +114,27 @@ test("course deletion is restricted to admins and supports deleting linked enrol
   await assertSucceeds(batch.commit());
 });
 
+test("complete marks are admin-only while students read only published enrollment marks", async () => {
+  const publishedMarks = {categories: [{name: "Quiz", items: [{name: "Quiz 1", obtained: 7, total: 10}]}]};
+  const completeMarks = {categories: [
+    {name: "Class Participation", items: [{name: "Participation", obtained: 8, total: 10}]},
+    ...publishedMarks.categories
+  ]};
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, "users", "student"), profile("2024-BSE-01"));
+    await setDoc(doc(db, "enrollments", "student__cloud"), {...enrollment("student"), approved: true, marks: publishedMarks});
+    await setDoc(doc(db, "private_marks", "student__cloud"), {enrollment_id: "student__cloud", user_id: "student", course_id: "cloud", marks: completeMarks});
+  });
+  const student = dbFor("student"), admin = dbFor("admin");
+  assert.deepEqual((await assertSucceeds(getDoc(doc(student, "enrollments", "student__cloud")))).data().marks, publishedMarks);
+  await assertFails(getDoc(doc(student, "private_marks", "student__cloud")));
+  await assertFails(getDocs(collection(student, "private_marks")));
+  await assertFails(setDoc(doc(student, "private_marks", "student__cloud"), {marks: completeMarks}));
+  assert.deepEqual((await assertSucceeds(getDoc(doc(admin, "private_marks", "student__cloud")))).data().marks, completeMarks);
+  await assertSucceeds(updateDoc(doc(admin, "private_marks", "student__cloud"), {marks: publishedMarks}));
+});
+
 test("disabling the default blocks new profiles and preserves existing students and marks", async () => {
   const admin = dbFor("admin");
   const marks = {categories: [{name: "Quiz", items: [{name: "Quiz 1", obtained: 8, total: 10}]}]};

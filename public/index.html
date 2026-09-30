@@ -65,6 +65,15 @@
         <p id="course-message" class="message" aria-live="polite"></p><div id="course-list" class="course-chips"></div>
       </section>
 
+      <section class="marks-visibility-card" aria-labelledby="marks-visibility-title">
+        <div class="section-heading"><div><p class="eyebrow">Student marks</p><h2 id="marks-visibility-title">Marks Visibility</h2></div></div>
+        <p class="form-help">Choose which assessment categories students can see for each course. Administrator-only categories remain available in the marks editor and reports.</p>
+        <label class="marks-visibility-course">Course<select id="visibility-course"></select></label>
+        <div id="visibility-category-list" class="visibility-category-list" aria-live="polite"></div>
+        <div class="marks-visibility-actions"><button id="save-mark-visibility" class="small" type="button" disabled>Save visibility</button></div>
+        <p id="visibility-message" class="message" role="status"></p>
+      </section>
+
       <section class="registration-ranges-card" aria-labelledby="registration-ranges-title">
         <div class="section-heading"><div><p class="eyebrow">Student registration</p><h2 id="registration-ranges-title">Allowed Registrations</h2></div></div>
         <p class="form-help">Add a number range for each class. These ranges apply to new student registrations across all courses.</p>

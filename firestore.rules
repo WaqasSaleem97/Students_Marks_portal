@@ -130,5 +130,11 @@ service cloud.firestore {
       allow read: if signedIn() && !isBlocked() && (resource.data.user_id == request.auth.uid || isAdmin());
       allow update, delete: if isAdmin();
     }
+
+    // Complete marks are kept separately so students can only read the
+    // categories explicitly published in their enrollment document.
+    match /private_marks/{enrollmentId} {
+      allow read, create, update, delete: if isAdmin();
+    }
   }
 }

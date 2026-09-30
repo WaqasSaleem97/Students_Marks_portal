@@ -18,13 +18,17 @@ function fixture(saved = [], options = {}) {
   window.Option = function Option(text, value) { const option = window.document.createElement("option"); option.textContent = text; option.value = value; return option; };
   const data = new Map(saved.map(range => [range.prefix, {...range}]));
   const enrollmentData = new Map((options.enrollments || []).map(item => [item.id, {...item}]));
+  const privateMarksData = new Map((options.privateMarks || []).map(item => [item.id, {...item}]));
   const claimData = new Map((options.registrationClaims || []).map(item => [item.registration_number, {...item}]));
   const writes = []; const confirmations = []; const popupCalls = []; const redirectCalls = []; const mobileAuthCalls = []; const githubFetches = []; let listener, listenerError, failNext = false, failNextBatch = false, confirmResult = options.confirmResult ?? true;
   const publish = () => listener?.({docs: [...data].map(([id, value]) => ({id, data: () => ({...value})}))});
   const applyOperations = operations => operations.forEach(operation => {
     if (operation.operation === "set" && operation.ref.name === "registration_claims") claimData.set(operation.ref.id, {...operation.value});
+    if (operation.operation === "set" && operation.ref.name === "private_marks") privateMarksData.set(operation.ref.id, {...operation.value});
     if (operation.operation === "delete" && operation.ref.name === "registration_claims") claimData.delete(operation.ref.id);
     if (operation.operation === "delete" && operation.ref.name === "enrollments") enrollmentData.delete(operation.ref.id);
+    if (operation.operation === "delete" && operation.ref.name === "private_marks") privateMarksData.delete(operation.ref.id);
+    if (operation.operation === "update" && operation.ref.name === "enrollments") enrollmentData.set(operation.ref.id, {...(enrollmentData.get(operation.ref.id) || {}), ...operation.value});
     if (operation.operation === "delete" && operation.ref.name === "registration_ranges") { data.delete(operation.ref.id); publish(); }
   });
   const commitOperations = async operations => {if (failNextBatch) {failNextBatch = false; throw {code: "permission-denied"};} writes.push(...operations); applyOperations(operations);};
@@ -35,7 +39,7 @@ function fixture(saved = [], options = {}) {
     getDocs: async ref => ({docs: (ref.name === "registration_claims" ? [...claimData] : [...enrollmentData].filter(([, value]) => ref.name === "enrollments" && (ref.filters || []).every(filter => filter.operator === "==" && value[filter.field] === filter.value))).map(([id, value]) => ({id, data: () => ({...value})}))}),
     onSnapshot: (ref, callback, error) => {assert.equal(ref.name, "registration_ranges"); listener = callback; listenerError = error; publish(); return () => {listener = null;};},
     setDoc: async (ref, value) => {await Promise.resolve(); if (failNext) {failNext = false; throw {code: "permission-denied"};} writes.push({ref, value}); data.set(ref.id, value); publish();},
-    updateDoc: async (ref, value) => {writes.push({operation: "update", ref, value});},
+    updateDoc: async (ref, value) => {const operation = {operation: "update", ref, value}; writes.push(operation); applyOperations([operation]);},
     deleteDoc: async ref => {const operation = {operation: "delete", ref}; writes.push(operation); applyOperations([operation]);},
     writeBatch: () => {const operations = []; return {set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref}), commit: () => commitOperations(operations)};},
     runTransaction: async (_db, updateFunction) => {const operations = []; const transaction = {get: async ref => ({exists: () => ref.name === "registration_claims" && claimData.has(ref.id), data: () => claimData.get(ref.id)}), set: (ref, value) => operations.push({operation: "set", ref, value}), update: (ref, value) => operations.push({operation: "update", ref, value}), delete: ref => operations.push({operation: "delete", ref})}; const result = await updateFunction(transaction); await commitOperations(operations); return result;},
@@ -47,12 +51,16 @@ function fixture(saved = [], options = {}) {
     renderEditorIdentity,
     renderStudentDashboard,
     generateReport,
+    renderMarksVisibility,
+    saveMarksVisibility,
+    selectEnrollment,
     reconcileRegistrationClaims,
     repairMissingGithubProfiles,
-    setAdminRecords(nextUsers, nextEnrollments) { users = nextUsers; enrollments = nextEnrollments; renderEnrollmentList(); },
+    setAdminRecords(nextUsers, nextEnrollments, nextPrivateMarks = []) { users = nextUsers; enrollments = nextEnrollments; privateMarksByEnrollment = new Map(nextPrivateMarks.map(item => [item.id, {...item}])); privateMarksReady = true; renderEnrollmentList(); renderMarksVisibility(); refreshReportCategories(); },
+    setCourses(nextCourses) { courses = nextCourses; populateCourseControls(); renderCourseList(); renderMarksVisibility(); },
     setCurrentUser(user) { currentUser = user; },
     setProfile(profile) { currentProfile = profile; updateRegistrationRangeHelp(); },
-    setup() { currentUser = {uid: "test-student"}; courses = [{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A", "B"]}]; populateCourseControls(); renderCourseList(); },
+    setup() { currentUser = {uid: "test-student"}; privateMarksReady = true; courses = [{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A", "B"], hidden_mark_categories: []}]; populateCourseControls(); renderCourseList(); renderMarksVisibility(); },
     stopListeners
   };`);
   window.testHooks.setup();
@@ -60,7 +68,7 @@ function fixture(saved = [], options = {}) {
   const submit = async id => {el(id).dispatchEvent(new window.Event("submit", {bubbles: true, cancelable: true})); await flush();};
   const fillRange = (prefix, first, last, digits) => {el("registration-prefix").value = prefix; el("registration-range-start").value = first; el("registration-range-end").value = last; el("registration-range-digits").value = digits;};
   const rangeButton = label => window.document.querySelector(`#registration-range-list button[aria-label="${label}"]`);
-  return {window, el, writes, data, enrollmentData, claimData, confirmations, popupCalls, redirectCalls, mobileAuthCalls, githubFetches, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failBatch: () => {failNextBatch = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
+  return {window, el, writes, data, enrollmentData, privateMarksData, claimData, confirmations, popupCalls, redirectCalls, mobileAuthCalls, githubFetches, submit, fillRange, rangeButton, start: () => window.testHooks.startRegistrationRangesListener(), setConfirm: value => {confirmResult = value;}, failSave: () => {failNext = true;}, failBatch: () => {failNextBatch = true;}, failLoad: () => listenerError({code: "permission-denied"}), close: () => window.happyDOM.close()};
 }
 
 test("GitHub login uses a popup in desktop browsers such as Edge", async () => {
@@ -114,6 +122,89 @@ test("admin areas are separated into three accessible tabs", async () => {
     assert.equal(management.hidden, false);
     assert.equal(reports.hidden, true);
     assert.equal(f.window.document.activeElement, f.el("admin-tab-management"));
+  } finally {await f.close();}
+});
+
+test("marks visibility is course-wise and appears above allowed registrations", async () => {
+  const f = fixture();
+  const marks = {categories: [
+    {name: "Class Participation", items: [{name: "Participation", obtained: 8, total: 10}]},
+    {name: "Quiz", items: [{name: "Quiz 1", obtained: 7, total: 10}]}
+  ]};
+  try {
+    f.window.testHooks.setCourses([
+      {id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A"], hidden_mark_categories: []},
+      {id: "devops", name: "Cloud DevOps", code: "CD", sections: ["A"], hidden_mark_categories: ["class participation"]}
+    ]);
+    f.window.testHooks.setAdminRecords([], [
+      {id: "student__cloud", user_id: "student", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "A", approved: true, marks},
+      {id: "student__devops", user_id: "student", course_id: "devops", course_name: "Cloud DevOps", course_code: "CD", section: "A", approved: true, marks}
+    ], [
+      {id: "student__cloud", marks},
+      {id: "student__devops", marks}
+    ]);
+
+    const managementChildren = [...f.el("admin-panel-management").children];
+    assert(managementChildren.indexOf(f.window.document.querySelector(".marks-visibility-card")) < managementChildren.indexOf(f.window.document.querySelector(".registration-ranges-card")));
+
+    f.el("visibility-course").value = "cloud"; f.el("visibility-course").dispatchEvent(new f.window.Event("change", {bubbles: true}));
+    let participation = f.window.document.querySelector('[data-category-key="class participation"]');
+    assert(participation, "Class Participation is available for Cloud Computing");
+    assert.equal(participation.checked, true);
+    assert.equal(participation.closest("label").querySelector(".visibility-category-status").textContent, "Visible");
+
+    f.el("visibility-course").value = "devops"; f.el("visibility-course").dispatchEvent(new f.window.Event("change", {bubbles: true}));
+    participation = f.window.document.querySelector('[data-category-key="class participation"]');
+    assert.equal(participation.checked, false);
+    assert.equal(participation.closest("label").querySelector(".visibility-category-status").textContent, "Admin only");
+  } finally {await f.close();}
+});
+
+test("saving visibility preserves complete admin marks and publishes only visible categories", async () => {
+  const f = fixture();
+  const marks = {categories: [
+    {name: "Class Participation", items: [{name: "Participation", obtained: 8, total: 10}]},
+    {name: "Quiz", items: [{name: "Quiz 1", obtained: 7, total: 10}]}
+  ]};
+  const enrollment = {id: "student__cloud", user_id: "student", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "A", approved: true, marks};
+  try {
+    f.window.testHooks.setAdminRecords([], [enrollment]);
+    f.el("visibility-course").value = "cloud"; f.window.testHooks.renderMarksVisibility();
+    const participation = f.window.document.querySelector('[data-category-key="class participation"]');
+    participation.checked = false; participation.dispatchEvent(new f.window.Event("change", {bubbles: true}));
+    f.el("save-mark-visibility").click(); await flush(); await flush();
+
+    const privateWrite = f.writes.find(item => item.operation === "set" && item.ref.name === "private_marks");
+    const publicWrite = f.writes.find(item => item.operation === "update" && item.ref.name === "enrollments");
+    const courseWrite = f.writes.find(item => item.operation === "update" && item.ref.name === "courses");
+    assert.deepEqual(Array.from(privateWrite.value.marks.categories, category => category.name), ["Class Participation", "Quiz"]);
+    assert.deepEqual(Array.from(publicWrite.value.marks.categories, category => category.name), ["Quiz"]);
+    assert.deepEqual(Array.from(courseWrite.value.hidden_mark_categories), ["class participation"]);
+    assert.match(f.el("visibility-message").textContent, /1 category is administrator-only/);
+  } finally {await f.close();}
+});
+
+test("hidden categories stay available to admin editors and reports but not student marks", async () => {
+  const f = fixture();
+  const publicMarks = {categories: [{name: "Quiz", items: [{name: "Quiz 1", obtained: 7, total: 10}]}]};
+  const completeMarks = {categories: [
+    {name: "Class Participation", items: [{name: "Participation", obtained: 8, total: 10}]},
+    ...publicMarks.categories
+  ]};
+  const profile = {id: "student", first_name: "Test", last_name: "Student", registration_number: "2024-BSE-01", user_name: "test-student"};
+  const enrollment = {id: "student__cloud", user_id: "student", course_id: "cloud", course_name: "Cloud Computing", course_code: "CC", section: "A", approved: true, marks: publicMarks};
+  try {
+    f.window.testHooks.setCourses([{id: "cloud", name: "Cloud Computing", code: "CC", sections: ["A"], hidden_mark_categories: ["class participation"]}]);
+    f.window.testHooks.setAdminRecords([profile], [enrollment], [{id: enrollment.id, marks: completeMarks}]);
+    f.window.testHooks.selectEnrollment(enrollment.id);
+    assert.deepEqual([...f.window.document.querySelectorAll("#category-editor .category-name")].map(input => input.value), ["Class Participation", "Quiz"]);
+
+    f.el("report-course").value = "cloud"; f.el("report-section").value = "both"; f.el("report-type").value = "overall";
+    f.window.testHooks.generateReport();
+    assert.deepEqual([...f.window.document.querySelectorAll("#report-head th")].map(cell => cell.textContent), ["Registration", "Student", "Section", "Class Participation", "Quiz"]);
+
+    f.window.testHooks.setProfile(profile); f.window.testHooks.renderStudentDashboard([enrollment]);
+    assert.deepEqual([...f.window.document.querySelectorAll("#category-tabs .tab")].map(tab => tab.textContent), ["Quiz"]);
   } finally {await f.close();}
 });
 
@@ -228,7 +319,7 @@ test("course deletion requires confirmation and removes enrollments while keepin
 
     f.setConfirm(true); remove.click(); await flush();
     const deleted = f.writes.filter(item => item.operation === "delete").map(item => `${item.ref.name}/${item.ref.id}`);
-    assert.deepEqual(deleted, ["enrollments/student-1__cloud", "enrollments/student-2__cloud", "courses/cloud"]);
+    assert.deepEqual(deleted, ["private_marks/student-1__cloud", "enrollments/student-1__cloud", "private_marks/student-2__cloud", "enrollments/student-2__cloud", "courses/cloud"]);
     assert.equal(f.enrollmentData.size, 0);
     assert.match(f.el("course-message").textContent, /2 enrollments and associated marks/);
     assert.equal(f.el("course-message").className, "message success");
