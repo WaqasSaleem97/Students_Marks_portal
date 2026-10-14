@@ -30,6 +30,12 @@ export function reviewProgress(items = []) {
   return { total: items.length, resolved, pending: items.length - resolved, deferred };
 }
 
+export function selectedReferenceCandidates(criterion = {}) {
+  const candidates = Array.isArray(criterion.reference_candidates) ? criterion.reference_candidates : [];
+  const selected = new Set(Array.isArray(criterion.selected_reference_ids) ? criterion.selected_reference_ids.map(String) : []);
+  return candidates.filter((candidate) => selected.has(String(candidate.id || "")) && candidate.image_url);
+}
+
 export function decisionPoints(item) {
   if (item.decision === "valid") return Number(item.max_points || 0);
   if (item.decision === "invalid") return 0;

@@ -202,12 +202,27 @@ legend { padding: 0 7px; font-weight: 800; }
 .review-pane-title h4 { margin: 0; }
 .review-pane-title code { max-width: 60%; overflow-wrap: anywhere; text-align: right; }
 .review-pane-title a { color: #24469b; font-size: 12px; font-weight: 750; }
+.review-reference-status { display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; color: #475467; font-size: 12px; font-weight: 750; }
+.review-reference-status > div { display: flex; gap: 6px; }
+.review-reference-status button { padding: 6px 9px; }
+.review-reference-meta { min-height: 1.4em; margin: 0 0 10px; color: #344054; font-size: 12px; }
 .review-image-frame { display: grid; min-height: 300px; max-height: 620px; place-items: center; overflow: auto; border-radius: 10px; background: #202631; }
 .review-image-frame img { display: block; max-width: 100%; max-height: 600px; object-fit: contain; }
 .review-checklist { min-height: 300px; padding: 20px; border: 1px solid #dae2ec; border-radius: 10px; background: #f8fafc; }
 .review-checklist p { margin: 0 0 12px; color: #7a4700; font-size: 12px; }
 .review-checklist ol { margin: 0; padding-left: 22px; }
 .review-checklist li + li { margin-top: 10px; }
+.review-reference-manager { margin-top: 14px; padding: 12px; border: 1px solid #dce3ec; border-radius: 10px; background: #f8fafc; }
+.review-reference-manager summary { cursor: pointer; color: #24469b; font-weight: 800; }
+.review-reference-manager > p { margin: 10px 0; color: #667085; font-size: 12px; }
+.review-reference-options { display: grid; max-height: 290px; gap: 8px; margin: 12px 0; overflow: auto; }
+.review-reference-option { display: grid; grid-template-columns: auto 1fr; gap: 9px; align-items: start; padding: 9px; border: 1px solid #e1e6ee; border-radius: 8px; background: #fff; cursor: pointer; }
+.review-reference-option input { margin-top: 3px; }
+.review-reference-option span { display: grid; gap: 2px; min-width: 0; }
+.review-reference-option strong, .review-reference-option small { overflow-wrap: anywhere; }
+.review-reference-option small { color: #667085; }
+.review-reference-manager > button { width: auto; }
+.review-reference-manager > .message { margin-bottom: 0; }
 .review-image-unavailable { display: grid; min-height: 300px; place-items: center; padding: 24px; border-radius: 10px; background: #fff4e5; color: #7a4700; text-align: center; }
 .review-details { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px; }
 .review-details div { padding: 12px; border: 1px solid #e5e9f0; border-radius: 9px; background: #f8fafc; }

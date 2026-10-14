@@ -143,8 +143,18 @@
             <div class="review-comparison">
               <section class="review-reference" aria-labelledby="review-reference-title">
                 <div class="review-pane-title"><h4 id="review-reference-title">Expected evidence</h4><code id="review-expected-filename"></code></div>
-                <a id="review-reference-link" class="review-image-frame" target="_blank" rel="noopener noreferrer" hidden><img id="review-reference-image" alt="Instructor reference evidence"></a>
+                <div class="review-reference-status"><span id="review-reference-count">No expected image selected</span><div><button id="review-reference-prev" class="small secondary" type="button" aria-label="Previous expected image">Previous</button><button id="review-reference-next" class="small secondary" type="button" aria-label="Next expected image">Next</button></div></div>
+                <p id="review-reference-meta" class="review-reference-meta"></p>
+                <a id="review-reference-link" class="review-image-frame" target="_blank" rel="noopener noreferrer" hidden><img id="review-reference-image" alt="Selected expected evidence"></a>
+                <div id="review-reference-unavailable" class="review-image-unavailable" hidden>No expected image is selected. Use the checklist below or select a clean full-credit example.</div>
                 <div id="review-reference-checklist" class="review-checklist"></div>
+                <details id="review-reference-manager" class="review-reference-manager">
+                  <summary>Manage expected images</summary>
+                  <p>Clean full-credit screenshots are selected automatically. Unselect any unsuitable example; this changes only the comparison reference, not student marks.</p>
+                  <div id="review-reference-options" class="review-reference-options"></div>
+                  <button id="review-save-references" class="small secondary" type="button">Save expected images</button>
+                  <p id="review-reference-message" class="message" role="status"></p>
+                </details>
               </section>
               <section class="review-submission" aria-labelledby="review-submission-title">
                 <div class="review-pane-title"><h4 id="review-submission-title">Student screenshot</h4><a id="review-image-link" target="_blank" rel="noopener noreferrer">Open full image</a></div>

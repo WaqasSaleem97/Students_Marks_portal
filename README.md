@@ -13,7 +13,7 @@ Students sign in using GitHub, submit their registration number, and wait for ad
 - Administrator-managed registration prefixes and numeric ranges for multiple classes, with edit, disable, and delete controls
 - Administrator approval for new accounts
 - Separate student and administrator dashboards
-- Three focused administrator tabs for courses and registrations, students and marks, and reports
+- Four focused administrator tabs for courses and registrations, students and marks, reports, and grading review
 - Student GitHub usernames in the enrollment list, enrollment editor, and student profile link directly to their GitHub profiles in a new tab
 - Any number of assessment categories, such as Quiz, Assignment, Midterm, Final, Lab, Project, or Presentation
 - Any number of marks entries inside each category
@@ -23,6 +23,8 @@ Students sign in using GitHub, submit their registration number, and wait for ad
 - Category-wise and overall reports for administrators
 - CSV report downloads
 - CSV templates for bulk marks entry
+- Pre-publication review of suspicious grading screenshots, grouped by criterion, with side-by-side expected and submitted evidence
+- Editable expected-image pools built from clean full-credit submissions; selecting a reference never changes marks by itself
 - Firestore security rules preventing students from changing marks or approving themselves
 - Responsive layout for desktop and mobile devices
 
@@ -58,6 +60,16 @@ Student can view category-wise marks
 ```
 
 An administrator is a Firebase user whose UID also exists as a document inside the `admins` Firestore collection.
+
+For grading runs staged by `CC-Autograder`, open **Grading Review**. Suspicious
+screenshots are presented question first and student second. Every clean
+full-credit screenshot for that question is initially selected as an expected
+example; use **Manage expected images** to remove or restore examples, and the
+Previous/Next controls to compare several valid outputs. These choices are
+visual guidance only. The **Evidence valid** or **Evidence invalid** decision is
+what changes the provisional criterion points. After every suspicious image has
+a final decision, confirm the review and run the linked finalization workflow.
+The original grading action is not running while the portal review is open.
 
 ## Requirements
 

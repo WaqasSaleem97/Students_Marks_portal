@@ -4,7 +4,7 @@ import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, qu
 import { firebaseConfig } from "./firebase-config.js";
 import { beginMobileGithubSignIn, fetchGithubProfileById, githubAccountId, githubProfileFromFirebaseUser, GITHUB_PROFILE_CACHE_KEY, mergeGithubProfiles, resolveGithubProfile, shouldUseMobileGithubSignIn } from "./auth-flow.js";
 import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
-import { decisionPoints, groupReviewItems, projectedScore, reviewProgress } from "./manual-review.js";
+import { decisionPoints, groupReviewItems, projectedScore, reviewProgress, selectedReferenceCandidates } from "./manual-review.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -45,6 +45,7 @@ let unsubscribeRegistrationRanges = null;
 let unsubscribeGradingRuns = null;
 let unsubscribeReviewItems = null;
 let unsubscribeReviewResults = null;
+let unsubscribeReviewCriteria = null;
 let syncingRegistrationClaims = false;
 let registrationClaimSyncQueued = false;
 let registrationClaimSyncError = "";
@@ -57,9 +58,12 @@ let gradingRuns = [];
 let selectedReviewRunId = "";
 let reviewItems = [];
 let reviewResults = new Map();
+let reviewCriteria = new Map();
 let reviewQuestionIndex = 0;
 let reviewStudentIndex = 0;
+let reviewReferenceIndex = 0;
 let savingReviewDecision = false;
+let savingReferenceSelection = false;
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 const adminTabs = [...document.querySelectorAll(".admin-tab")];
@@ -486,8 +490,9 @@ function startGradingRunsListener() {
 function selectReviewRun(runId) {
   if (unsubscribeReviewItems) unsubscribeReviewItems();
   if (unsubscribeReviewResults) unsubscribeReviewResults();
-  unsubscribeReviewItems = unsubscribeReviewResults = null;
-  selectedReviewRunId = runId; reviewItems = []; reviewResults = new Map(); reviewQuestionIndex = 0; reviewStudentIndex = 0;
+  if (unsubscribeReviewCriteria) unsubscribeReviewCriteria();
+  unsubscribeReviewItems = unsubscribeReviewResults = unsubscribeReviewCriteria = null;
+  selectedReviewRunId = runId; reviewItems = []; reviewResults = new Map(); reviewCriteria = new Map(); reviewQuestionIndex = 0; reviewStudentIndex = 0; reviewReferenceIndex = 0;
   if (!runId) { renderReviewPanel(); return; }
   unsubscribeReviewItems = onSnapshot(collection(db, "grading_runs", runId, "items"), (snapshot) => {
     reviewItems = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderReviewPanel();
@@ -495,6 +500,13 @@ function selectReviewRun(runId) {
   unsubscribeReviewResults = onSnapshot(collection(db, "grading_runs", runId, "results"), (snapshot) => {
     reviewResults = new Map(snapshot.docs.map((item) => [item.id, item.data()?.result || {}])); renderReviewPanel();
   }, (error) => { el("review-message").textContent = friendlyError(error); });
+  unsubscribeReviewCriteria = onSnapshot(collection(db, "grading_runs", runId, "criteria"), (snapshot) => {
+    reviewCriteria = new Map(snapshot.docs.map((item) => {
+      const value = { id: item.id, ...item.data() };
+      return [String(value.criterion_id || item.id), value];
+    }));
+    renderReviewPanel();
+  }, (error) => { el("review-reference-message").textContent = friendlyError(error); });
   renderReviewPanel();
 }
 
@@ -544,12 +556,50 @@ function renderReviewPanel() {
     el("review-decision-status").textContent = decisionLabels[item.decision] || "Pending";
     el("review-expected-filename").textContent = item.expected_filename || "";
 
-    const referenceUrl = item.reference_image_url || group.referenceImageUrl;
+    const criterion = reviewCriteria.get(String(group.id));
+    const legacyReferenceUrl = item.reference_image_url || group.referenceImageUrl;
+    const references = criterion
+      ? selectedReferenceCandidates(criterion)
+      : (legacyReferenceUrl ? [{ id: "legacy-reference", source: "instructor", label: "Instructor reference", image_url: legacyReferenceUrl }] : []);
+    reviewReferenceIndex = Math.min(Math.max(reviewReferenceIndex, 0), Math.max(0, references.length - 1));
+    const reference = references[reviewReferenceIndex];
+    const referenceUrl = String(reference?.image_url || "");
     el("review-reference-link").hidden = !referenceUrl;
-    if (referenceUrl) { el("review-reference-link").href = referenceUrl; el("review-reference-image").src = referenceUrl; }
+    el("review-reference-unavailable").hidden = Boolean(referenceUrl);
+    if (referenceUrl) {
+      el("review-reference-link").href = referenceUrl;
+      el("review-reference-image").src = referenceUrl;
+    } else {
+      el("review-reference-link").removeAttribute("href");
+      el("review-reference-image").removeAttribute("src");
+    }
+    el("review-reference-count").textContent = references.length ? `Expected image ${reviewReferenceIndex + 1} of ${references.length}` : "No expected image selected";
+    el("review-reference-meta").textContent = reference
+      ? `${reference.label || "Expected evidence"}${reference.source === "student-full-credit" ? " · received full automatic credit" : ""}`
+      : "";
+    el("review-reference-prev").disabled = references.length < 2 || reviewReferenceIndex === 0;
+    el("review-reference-next").disabled = references.length < 2 || reviewReferenceIndex >= references.length - 1;
     const checklist = el("review-reference-checklist"); checklist.replaceChildren();
-    const help = document.createElement("p"); help.textContent = referenceUrl ? "Use the fixed instructor reference and checklist below." : "No instructor reference image has been supplied for this criterion; use this fixed checklist."; checklist.append(help);
+    const help = document.createElement("p"); help.textContent = referenceUrl ? "Compare the student screenshot with the selected full-credit examples and this requirement checklist." : "No expected image is selected for this criterion; use this fixed requirement checklist."; checklist.append(help);
     const list = document.createElement("ol"); (item.expected_evidence?.length ? item.expected_evidence : group.expectedEvidence).forEach((entry) => { const row = document.createElement("li"); row.textContent = entry; list.append(row); }); checklist.append(list);
+
+    const manager = el("review-reference-manager"); manager.hidden = !criterion;
+    const options = el("review-reference-options"); options.replaceChildren();
+    if (criterion) {
+      const selectedIds = new Set((criterion.selected_reference_ids || []).map(String));
+      for (const candidate of criterion.reference_candidates || []) {
+        const option = document.createElement("label"); option.className = "review-reference-option";
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.value = String(candidate.id || ""); checkbox.checked = selectedIds.has(checkbox.value); checkbox.disabled = savingReferenceSelection || ["staging", "finalizing", "finalized"].includes(run.status);
+        const text = document.createElement("span");
+        const title = document.createElement("strong"); title.textContent = candidate.label || "Expected image";
+        const detail = document.createElement("small"); detail.textContent = candidate.source === "instructor" ? "Instructor-provided reference" : `Clean full-credit submission${candidate.submitted_path ? ` · ${candidate.submitted_path}` : ""}`;
+        text.append(title, detail); option.append(checkbox, text); options.append(option);
+      }
+      if (!(criterion.reference_candidates || []).length) {
+        const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No clean full-credit image is available for this criterion. Use the written checklist."; options.append(empty);
+      }
+      el("review-save-references").disabled = savingReferenceSelection || ["staging", "finalizing", "finalized"].includes(run.status) || !(criterion.reference_candidates || []).length;
+    }
 
     const imageAvailable = Boolean(item.student_image_url);
     el("review-student-image-frame").hidden = !imageAvailable; el("review-image-link").hidden = !imageAvailable; el("review-image-unavailable").hidden = imageAvailable;
@@ -581,6 +631,53 @@ function currentReviewItem() {
   const groups = groupReviewItems(reviewItems); return groups[reviewQuestionIndex]?.items[reviewStudentIndex] || null;
 }
 
+function currentReviewCriterion() {
+  const group = groupReviewItems(reviewItems)[reviewQuestionIndex];
+  return group ? reviewCriteria.get(String(group.id)) : null;
+}
+
+function moveReviewReference(direction) {
+  const criterion = currentReviewCriterion();
+  const group = groupReviewItems(reviewItems)[reviewQuestionIndex];
+  const item = group?.items[reviewStudentIndex];
+  const legacyUrl = item?.reference_image_url || group?.referenceImageUrl;
+  const references = criterion ? selectedReferenceCandidates(criterion) : (legacyUrl ? [{ image_url: legacyUrl }] : []);
+  reviewReferenceIndex = Math.min(Math.max(reviewReferenceIndex + direction, 0), Math.max(0, references.length - 1));
+  renderReviewPanel();
+}
+
+async function saveReferenceSelection() {
+  const criterion = currentReviewCriterion();
+  const run = gradingRuns.find((candidate) => candidate.id === selectedReviewRunId);
+  if (!criterion || !run || savingReferenceSelection || ["staging", "finalizing", "finalized"].includes(run.status)) return;
+  const allowed = new Set((criterion.reference_candidate_ids || []).map(String));
+  const selectedIds = [...el("review-reference-options").querySelectorAll('input[type="checkbox"]:checked')]
+    .map((input) => input.value)
+    .filter((id) => allowed.has(id));
+  savingReferenceSelection = true;
+  el("review-reference-message").className = "message";
+  el("review-reference-message").textContent = "Saving expected images…";
+  renderReviewPanel();
+  try {
+    await updateDoc(doc(db, "grading_runs", run.id, "criteria", criterion.id), {
+      selected_reference_ids: selectedIds,
+      reviewer_uid: currentUser.uid,
+      reviewed_at: serverTimestamp(),
+      updated_at: serverTimestamp()
+    });
+    criterion.selected_reference_ids = selectedIds;
+    reviewReferenceIndex = 0;
+    el("review-reference-message").className = "message success";
+    el("review-reference-message").textContent = `${selectedIds.length} expected image(s) selected for this criterion.`;
+  } catch (error) {
+    el("review-reference-message").className = "message";
+    el("review-reference-message").textContent = friendlyError(error);
+  } finally {
+    savingReferenceSelection = false;
+    renderReviewPanel();
+  }
+}
+
 async function saveReviewDecision(decision) {
   const item = currentReviewItem(); const runId = selectedReviewRunId;
   if (!item || !runId || savingReviewDecision) return;
@@ -603,7 +700,7 @@ async function saveReviewDecision(decision) {
   finally { savingReviewDecision = false; renderReviewPanel(); }
 }
 
-function moveReviewQuestion(direction) { const groups = groupReviewItems(reviewItems); reviewQuestionIndex = Math.min(Math.max(reviewQuestionIndex + direction, 0), Math.max(0, groups.length - 1)); reviewStudentIndex = 0; renderReviewPanel(); }
+function moveReviewQuestion(direction) { const groups = groupReviewItems(reviewItems); reviewQuestionIndex = Math.min(Math.max(reviewQuestionIndex + direction, 0), Math.max(0, groups.length - 1)); reviewStudentIndex = 0; reviewReferenceIndex = 0; el("review-reference-message").textContent = ""; renderReviewPanel(); }
 function moveReviewStudent(direction) { const group = groupReviewItems(reviewItems)[reviewQuestionIndex]; reviewStudentIndex = Math.min(Math.max(reviewStudentIndex + direction, 0), Math.max(0, (group?.items.length || 1) - 1)); renderReviewPanel(); }
 
 async function confirmReviewComplete() {
@@ -949,7 +1046,7 @@ async function uploadMarksCsv() {
   finally { el("upload-marks").disabled = !el("marks-csv").files.length; }
 }
 
-function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribePrivateMarks, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges, unsubscribeGradingRuns, unsubscribeReviewItems, unsubscribeReviewResults].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribePrivateMarks = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = unsubscribeGradingRuns = unsubscribeReviewItems = unsubscribeReviewResults = null; privateMarksByEnrollment = new Map(); privateMarksReady = false; privateMarksFromCache = true; enrollmentMarksFromCache = true; registrationRanges = []; registrationRangesReady = false; gradingRuns = []; selectedReviewRunId = ""; reviewItems = []; reviewResults = new Map(); resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
+function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribePrivateMarks, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges, unsubscribeGradingRuns, unsubscribeReviewItems, unsubscribeReviewResults, unsubscribeReviewCriteria].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribePrivateMarks = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = unsubscribeGradingRuns = unsubscribeReviewItems = unsubscribeReviewResults = unsubscribeReviewCriteria = null; privateMarksByEnrollment = new Map(); privateMarksReady = false; privateMarksFromCache = true; enrollmentMarksFromCache = true; registrationRanges = []; registrationRangesReady = false; gradingRuns = []; selectedReviewRunId = ""; reviewItems = []; reviewResults = new Map(); reviewCriteria = new Map(); reviewReferenceIndex = 0; resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
 
 async function captureGithubProfile(result) {
   if (!result) return;
@@ -980,6 +1077,8 @@ el("refresh-users").addEventListener("click", () => { renderEnrollmentList(); vo
 el("review-run-select").addEventListener("change", () => selectReviewRun(el("review-run-select").value));
 el("review-prev-question").addEventListener("click", () => moveReviewQuestion(-1)); el("review-next-question").addEventListener("click", () => moveReviewQuestion(1));
 el("review-prev-student").addEventListener("click", () => moveReviewStudent(-1)); el("review-next-student").addEventListener("click", () => moveReviewStudent(1));
+el("review-reference-prev").addEventListener("click", () => moveReviewReference(-1)); el("review-reference-next").addEventListener("click", () => moveReviewReference(1));
+el("review-save-references").addEventListener("click", () => { void saveReferenceSelection(); });
 el("review-valid").addEventListener("click", () => { void saveReviewDecision("valid"); }); el("review-invalid").addEventListener("click", () => { void saveReviewDecision("invalid"); }); el("review-later").addEventListener("click", () => { void saveReviewDecision("review-later"); });
 el("review-confirm").addEventListener("click", () => { void confirmReviewComplete(); });
 el("review-copy-id").addEventListener("click", async () => {

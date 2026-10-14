@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
-import { groupReviewItems, projectedScore, reviewProgress } from "../public/manual-review.js";
+import { groupReviewItems, projectedScore, reviewProgress, selectedReferenceCandidates } from "../public/manual-review.js";
 
 const items = [
   { id: "b", enrollment_id: "test-002__cc", registration_number: "TEST-STUDENT-002", criterion_id: "question-2", criterion_order: 1, criterion_label: "Question 2", decision: "pending", automatic_points: 0, max_points: 1 },
@@ -23,10 +23,24 @@ test("projected score changes only reviewed criterion contributions", () => {
   assert.equal(projectedScore({ obtained: 7, total: 10 }, items.filter((item) => item.enrollment_id === "test-001__cc")), 7);
 });
 
+test("expected-image selection can retain several full-credit examples", () => {
+  const criterion = {
+    selected_reference_ids: ["student-01", "student-02"],
+    reference_candidates: [
+      { id: "student-01", label: "2024-BSE-01", image_url: "https://example.test/01.png" },
+      { id: "student-02", label: "2024-BSE-02", image_url: "https://example.test/02.png" },
+      { id: "student-03", label: "2024-BSE-03", image_url: "https://example.test/03.png" }
+    ]
+  };
+  assert.deepEqual(selectedReferenceCandidates(criterion).map((candidate) => candidate.id), ["student-01", "student-02"]);
+});
+
 test("the administrator portal exposes question-first comparison and finalization controls", () => {
   const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
   assert.match(html, /data-admin-panel="admin-panel-review"/);
   assert.match(html, /id="review-reference-image"/);
+  assert.match(html, /id="review-reference-options"/);
+  assert.match(html, />Save expected images</);
   assert.match(html, /id="review-student-image"/);
   assert.match(html, />Evidence valid</);
   assert.match(html, />Evidence invalid</);
