@@ -136,5 +136,48 @@ service cloud.firestore {
     match /private_marks/{enrollmentId} {
       allow read, create, update, delete: if isAdmin();
     }
+
+    // Provisional grading data and screenshot decisions are visible only to
+    // administrators. The service-account workflows create and finalize runs;
+    // the browser can change only narrowly scoped review fields.
+    match /grading_runs/{runId} {
+      allow read: if isAdmin();
+      allow create, delete: if false;
+      allow update: if isAdmin()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                      'status', 'pending_count', 'reviewed_count', 'reviewer_uid',
+                      'review_completed_at', 'updated_at'
+                    ])
+                    && request.resource.data.status in ['reviewing', 'ready']
+                    && request.resource.data.pending_count is int
+                    && request.resource.data.reviewed_count is int
+                    && request.resource.data.pending_count >= 0
+                    && request.resource.data.reviewed_count >= 0
+                    && request.resource.data.pending_count <= request.resource.data.item_count
+                    && request.resource.data.reviewed_count == request.resource.data.item_count - request.resource.data.pending_count
+                    && request.resource.data.reviewer_uid == request.auth.uid
+                    && (request.resource.data.review_completed_at == null
+                        || request.resource.data.review_completed_at == request.time)
+                    && request.resource.data.updated_at == request.time;
+
+      match /items/{itemId} {
+        allow read: if isAdmin();
+        allow create, delete: if false;
+        allow update: if isAdmin()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'decision', 'reviewer_note', 'reviewer_uid', 'reviewed_at'
+                      ])
+                      && request.resource.data.decision in ['pending', 'valid', 'invalid', 'review-later']
+                      && request.resource.data.reviewer_note is string
+                      && request.resource.data.reviewer_note.size() <= 1000
+                      && request.resource.data.reviewer_uid == request.auth.uid
+                      && request.resource.data.reviewed_at == request.time;
+      }
+
+      match /results/{resultId} {
+        allow read: if isAdmin();
+        allow write: if false;
+      }
+    }
   }
 }

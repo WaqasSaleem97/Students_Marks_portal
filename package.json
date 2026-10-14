@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/auth-flow.test.js tests/registration-ranges.test.js tests/registration-ui.test.js",
-    "test:rules": "firebase emulators:exec --config firebase.test.json --only firestore --project demo-student-marks \"node --test tests/firestore.rules.test.js\""
+    "test": "node --test tests/auth-flow.test.js tests/registration-ranges.test.js tests/registration-ui.test.js tests/manual-review-ui.test.js",
+    "test:rules": "firebase emulators:exec --config firebase.test.json --only firestore --project demo-student-marks \"node --test tests/firestore.rules.test.js tests/manual-review-rules.test.js\""
   },
   "dependencies": {
     "firebase": "^12.16.0"

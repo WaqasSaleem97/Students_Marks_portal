@@ -4,6 +4,7 @@ import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, qu
 import { firebaseConfig } from "./firebase-config.js";
 import { beginMobileGithubSignIn, fetchGithubProfileById, githubAccountId, githubProfileFromFirebaseUser, GITHUB_PROFILE_CACHE_KEY, mergeGithubProfiles, resolveGithubProfile, shouldUseMobileGithubSignIn } from "./auth-flow.js";
 import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
+import { decisionPoints, groupReviewItems, projectedScore, reviewProgress } from "./manual-review.js";
 
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
@@ -41,6 +42,9 @@ let unsubscribePrivateMarks = null;
 let unsubscribeProfile = null;
 let unsubscribeMyEnrollments = null;
 let unsubscribeRegistrationRanges = null;
+let unsubscribeGradingRuns = null;
+let unsubscribeReviewItems = null;
+let unsubscribeReviewResults = null;
 let syncingRegistrationClaims = false;
 let registrationClaimSyncQueued = false;
 let registrationClaimSyncError = "";
@@ -49,6 +53,13 @@ let privateMarksFromCache = true;
 let enrollmentMarksFromCache = true;
 let savingMarkVisibility = false;
 const githubProfileRepairAttempts = new Set();
+let gradingRuns = [];
+let selectedReviewRunId = "";
+let reviewItems = [];
+let reviewResults = new Map();
+let reviewQuestionIndex = 0;
+let reviewStudentIndex = 0;
+let savingReviewDecision = false;
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 const adminTabs = [...document.querySelectorAll(".admin-tab")];
@@ -442,6 +453,168 @@ function startAdminListeners() {
   }, (error) => { privateMarksReady = false; renderMarksVisibility(); el("visibility-message").textContent = friendlyError(error); setReportSyncStatus(`Protected marks could not be synchronized. ${friendlyError(error)}`, true); });
   unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => { users = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); void reconcileRegistrationClaims(); void repairMissingGithubProfiles(); });
   unsubscribeEnrollments = onSnapshot(collection(db, "enrollments"), (snapshot) => { enrollments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); enrollmentMarksFromCache = Boolean(snapshot.metadata?.fromCache); updateReportSyncStatus(); renderEnrollmentList(); renderMarksVisibility(); refreshReportCategories(); if (!el("report-table").hidden) generateReport(); }, (error) => setReportSyncStatus(`Enrollment marks could not be synchronized. ${friendlyError(error)}`, true));
+  startGradingRunsListener();
+}
+
+function timestampMillis(value) {
+  if (value?.toMillis) return value.toMillis();
+  const parsed = Date.parse(value || "");
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function reviewRunLabel(run) {
+  const number = run.source_run_number || run.run_id || run.id;
+  return `#${number} · ${run.course_code || "Course"} · ${run.assessment || "Assessment"} · ${String(run.status || "unknown").replaceAll("_", " ")}`;
+}
+
+function startGradingRunsListener() {
+  if (unsubscribeGradingRuns) unsubscribeGradingRuns();
+  unsubscribeGradingRuns = onSnapshot(collection(db, "grading_runs"), (snapshot) => {
+    gradingRuns = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
+      .sort((left, right) => timestampMillis(right.created_at) - timestampMillis(left.created_at) || right.id.localeCompare(left.id));
+    const select = el("review-run-select"); const previous = selectedReviewRunId; select.replaceChildren(new Option("Select a staged grading run", ""));
+    gradingRuns.forEach((run) => select.add(new Option(reviewRunLabel(run), run.id)));
+    if (previous && gradingRuns.some((run) => run.id === previous)) { select.value = previous; renderReviewPanel(); return; }
+    const preferred = gradingRuns.find((run) => !["finalized", "staging"].includes(run.status)) || gradingRuns[0];
+    select.value = preferred?.id || "";
+    selectReviewRun(select.value);
+  }, (error) => {
+    el("review-run-summary").textContent = `Grading reviews could not be loaded. ${friendlyError(error)}`;
+  });
+}
+
+function selectReviewRun(runId) {
+  if (unsubscribeReviewItems) unsubscribeReviewItems();
+  if (unsubscribeReviewResults) unsubscribeReviewResults();
+  unsubscribeReviewItems = unsubscribeReviewResults = null;
+  selectedReviewRunId = runId; reviewItems = []; reviewResults = new Map(); reviewQuestionIndex = 0; reviewStudentIndex = 0;
+  if (!runId) { renderReviewPanel(); return; }
+  unsubscribeReviewItems = onSnapshot(collection(db, "grading_runs", runId, "items"), (snapshot) => {
+    reviewItems = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderReviewPanel();
+  }, (error) => { el("review-message").textContent = friendlyError(error); });
+  unsubscribeReviewResults = onSnapshot(collection(db, "grading_runs", runId, "results"), (snapshot) => {
+    reviewResults = new Map(snapshot.docs.map((item) => [item.id, item.data()?.result || {}])); renderReviewPanel();
+  }, (error) => { el("review-message").textContent = friendlyError(error); });
+  renderReviewPanel();
+}
+
+function reviewStatusLabel(status) {
+  return ({ staging: "Preparing", reviewing: "Review required", ready: "Ready to finalize", finalizing: "Finalizing", finalization_failed: "Finalization failed", finalized: "Finalized" })[status] || "Unknown";
+}
+
+function markNumber(value) { return Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
+
+function renderReviewPanel() {
+  const run = gradingRuns.find((candidate) => candidate.id === selectedReviewRunId);
+  const status = el("review-run-status"); status.className = "badge"; status.textContent = run ? reviewStatusLabel(run.status) : "No run selected";
+  if (run && ["ready", "finalizing", "finalized"].includes(run.status)) status.classList.add("published");
+  const actions = el("review-run-actions"); actions.replaceChildren();
+  if (run) {
+    const settings = document.createElement("span"); settings.textContent = `Publish marks: ${run.requested_update_firestore ? "yes" : "no"} · Email: ${run.requested_send_email ? "yes" : "no"}`; actions.append(settings);
+    if (run.source_workflow_url) { const link = document.createElement("a"); link.href = run.source_workflow_url; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = "Open original run"; actions.append(link); }
+  }
+
+  if (!run) {
+    el("review-run-summary").textContent = "Select a grading run. Only possible false positives and false negatives appear here.";
+    el("review-empty").hidden = false; el("review-workspace").hidden = true; return;
+  }
+
+  const progress = reviewProgress(reviewItems);
+  el("review-run-summary").textContent = `${progress.resolved}/${progress.total} suspicious screenshot(s) decided; ${progress.pending} unresolved${progress.deferred ? `, including ${progress.deferred} marked Review later` : ""}. Automatic score changes are previews until finalization.`;
+  el("review-empty").hidden = true; el("review-workspace").hidden = false;
+  const groups = groupReviewItems(reviewItems);
+  reviewQuestionIndex = Math.min(Math.max(reviewQuestionIndex, 0), Math.max(0, groups.length - 1));
+  const group = groups[reviewQuestionIndex];
+  reviewStudentIndex = Math.min(Math.max(reviewStudentIndex, 0), Math.max(0, (group?.items.length || 1) - 1));
+  const item = group?.items[reviewStudentIndex];
+  el("review-progress-row").hidden = !item;
+  el("review-evidence-card").hidden = !item;
+
+  if (item) {
+    el("review-question-progress").textContent = `Criterion ${reviewQuestionIndex + 1} of ${groups.length}: ${group.label}`;
+    el("review-student-progress").textContent = `Student ${reviewStudentIndex + 1} of ${group.items.length}`;
+    el("review-prev-question").disabled = reviewQuestionIndex === 0;
+    el("review-next-question").disabled = reviewQuestionIndex >= groups.length - 1;
+    el("review-prev-student").disabled = reviewStudentIndex === 0;
+    el("review-next-student").disabled = reviewStudentIndex >= group.items.length - 1;
+    el("review-category").textContent = item.audit_category || "Suspicious evidence";
+    el("review-criterion").textContent = group.label;
+    el("review-student").textContent = `${item.registration_number || "No registration"} · ${item.github_username || "No username"}`;
+    const decisionLabels = { pending: "Pending", valid: "Evidence valid", invalid: "Evidence invalid", "review-later": "Review later" };
+    el("review-decision-status").textContent = decisionLabels[item.decision] || "Pending";
+    el("review-expected-filename").textContent = item.expected_filename || "";
+
+    const referenceUrl = item.reference_image_url || group.referenceImageUrl;
+    el("review-reference-link").hidden = !referenceUrl;
+    if (referenceUrl) { el("review-reference-link").href = referenceUrl; el("review-reference-image").src = referenceUrl; }
+    const checklist = el("review-reference-checklist"); checklist.replaceChildren();
+    const help = document.createElement("p"); help.textContent = referenceUrl ? "Use the fixed instructor reference and checklist below." : "No instructor reference image has been supplied for this criterion; use this fixed checklist."; checklist.append(help);
+    const list = document.createElement("ol"); (item.expected_evidence?.length ? item.expected_evidence : group.expectedEvidence).forEach((entry) => { const row = document.createElement("li"); row.textContent = entry; list.append(row); }); checklist.append(list);
+
+    const imageAvailable = Boolean(item.student_image_url);
+    el("review-student-image-frame").hidden = !imageAvailable; el("review-image-link").hidden = !imageAvailable; el("review-image-unavailable").hidden = imageAvailable;
+    if (imageAvailable) { el("review-student-image-frame").href = item.student_image_url; el("review-student-image").src = item.student_image_url; el("review-image-link").href = item.student_image_url; }
+    el("review-automatic-result").textContent = `${item.automatic_status || "Unknown"} — ${item.automatic_reason || "No explanation"}`;
+    el("review-flag-reason").textContent = item.audit_reason || "Selected by the risk-based audit.";
+    el("review-mark-effect").textContent = `${markNumber(item.automatic_points)} automatic → ${markNumber(decisionPoints(item))}/${markNumber(item.max_points)} with this decision`;
+    const result = reviewResults.get(item.enrollment_id) || {};
+    const studentItems = reviewItems.filter((candidate) => candidate.enrollment_id === item.enrollment_id);
+    el("review-projected-score").textContent = `${markNumber(projectedScore(result, studentItems))}/${markNumber(result.total)}`;
+    el("review-ocr-text").textContent = item.ocr_text || "No saved OCR text is available for this image.";
+    el("review-note").value = item.reviewer_note || "";
+    [["review-valid", "valid"], ["review-invalid", "invalid"], ["review-later", "review-later"]].forEach(([id, decision]) => el(id).classList.toggle("selected", item.decision === decision));
+    const locked = savingReviewDecision || ["staging", "finalizing", "finalized"].includes(run.status);
+    ["review-valid", "review-invalid", "review-later"].forEach((id) => { el(id).disabled = locked; });
+  }
+
+  const complete = progress.pending === 0 && run.status !== "staging";
+  el("review-finalize").hidden = !complete;
+  const confirmed = Boolean(run.review_completed_at) || ["finalizing", "finalized"].includes(run.status);
+  el("review-confirm").hidden = confirmed;
+  el("review-finalize-link").hidden = !confirmed || run.status === "finalized";
+  el("review-run-id").textContent = run.run_id || run.id;
+  el("review-open-finalize").href = run.finalization_workflow_url || "https://github.com/WaqasSaleem97/CC-Autograder/actions/workflows/finalize-review.yml";
+  if (run.status === "finalized") el("review-finalize").querySelector("p").textContent = "The reviewed marks were finalized. Requested portal publishing and email delivery have completed.";
+}
+
+function currentReviewItem() {
+  const groups = groupReviewItems(reviewItems); return groups[reviewQuestionIndex]?.items[reviewStudentIndex] || null;
+}
+
+async function saveReviewDecision(decision) {
+  const item = currentReviewItem(); const runId = selectedReviewRunId;
+  if (!item || !runId || savingReviewDecision) return;
+  savingReviewDecision = true; el("review-message").textContent = "Saving decision…"; renderReviewPanel();
+  try {
+    const itemRef = doc(db, "grading_runs", runId, "items", item.id); const runRef = doc(db, "grading_runs", runId);
+    const note = el("review-note").value.trim();
+    await runTransaction(db, async (transaction) => {
+      const [itemSnapshot, runSnapshot] = await Promise.all([transaction.get(itemRef), transaction.get(runRef)]);
+      if (!itemSnapshot.exists() || !runSnapshot.exists()) throw new Error("This review item or grading run no longer exists.");
+      const savedItem = itemSnapshot.data(); const savedRun = runSnapshot.data();
+      if (["staging", "finalizing", "finalized"].includes(savedRun.status)) throw new Error("This grading run cannot be edited in its current state.");
+      const wasResolved = ["valid", "invalid"].includes(savedItem.decision); const isResolved = ["valid", "invalid"].includes(decision);
+      const pending = Math.max(0, Number(savedRun.pending_count || 0) + (wasResolved ? 1 : 0) - (isResolved ? 1 : 0));
+      transaction.update(itemRef, { decision, reviewer_note: note, reviewer_uid: currentUser.uid, reviewed_at: serverTimestamp() });
+      transaction.update(runRef, { status: pending === 0 ? "ready" : "reviewing", pending_count: pending, reviewed_count: Math.max(0, Number(savedRun.item_count || 0) - pending), reviewer_uid: currentUser.uid, review_completed_at: null, updated_at: serverTimestamp() });
+    });
+    item.decision = decision; item.reviewer_note = note; el("review-message").className = "message success"; el("review-message").textContent = "Decision saved.";
+  } catch (error) { el("review-message").className = "message"; el("review-message").textContent = friendlyError(error); }
+  finally { savingReviewDecision = false; renderReviewPanel(); }
+}
+
+function moveReviewQuestion(direction) { const groups = groupReviewItems(reviewItems); reviewQuestionIndex = Math.min(Math.max(reviewQuestionIndex + direction, 0), Math.max(0, groups.length - 1)); reviewStudentIndex = 0; renderReviewPanel(); }
+function moveReviewStudent(direction) { const group = groupReviewItems(reviewItems)[reviewQuestionIndex]; reviewStudentIndex = Math.min(Math.max(reviewStudentIndex + direction, 0), Math.max(0, (group?.items.length || 1) - 1)); renderReviewPanel(); }
+
+async function confirmReviewComplete() {
+  const run = gradingRuns.find((candidate) => candidate.id === selectedReviewRunId); const progress = reviewProgress(reviewItems);
+  if (!run || progress.pending) return;
+  el("review-confirm").disabled = true;
+  try {
+    await updateDoc(doc(db, "grading_runs", run.id), { status: "ready", pending_count: 0, reviewed_count: progress.total, reviewer_uid: currentUser.uid, review_completed_at: serverTimestamp(), updated_at: serverTimestamp() });
+    el("review-message").className = "message success"; el("review-message").textContent = "Review confirmed. Open the finalization workflow below; no grading runner is waiting.";
+  } catch (error) { el("review-message").className = "message"; el("review-message").textContent = friendlyError(error); }
+  finally { el("review-confirm").disabled = false; }
 }
 
 async function repairMissingGithubProfiles(profiles = users, retry = false) {
@@ -776,7 +949,7 @@ async function uploadMarksCsv() {
   finally { el("upload-marks").disabled = !el("marks-csv").files.length; }
 }
 
-function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribePrivateMarks, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribePrivateMarks = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = null; privateMarksByEnrollment = new Map(); privateMarksReady = false; privateMarksFromCache = true; enrollmentMarksFromCache = true; registrationRanges = []; registrationRangesReady = false; resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
+function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribePrivateMarks, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges, unsubscribeGradingRuns, unsubscribeReviewItems, unsubscribeReviewResults].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribePrivateMarks = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = unsubscribeGradingRuns = unsubscribeReviewItems = unsubscribeReviewResults = null; privateMarksByEnrollment = new Map(); privateMarksReady = false; privateMarksFromCache = true; enrollmentMarksFromCache = true; registrationRanges = []; registrationRangesReady = false; gradingRuns = []; selectedReviewRunId = ""; reviewItems = []; reviewResults = new Map(); resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
 
 async function captureGithubProfile(result) {
   if (!result) return;
@@ -804,5 +977,14 @@ el("registration-course").addEventListener("change", updateRegistrationSections)
 el("cancel-enrollment").addEventListener("click", () => { addingAnotherCourse = false; renderStudentState(); }); el("add-course").addEventListener("click", () => openEnrollmentForm(true)); el("pending-add-course").addEventListener("click", () => openEnrollmentForm(true));
 el("add-category").addEventListener("click", () => addCategory()); document.querySelectorAll(".user-tab").forEach((button) => button.addEventListener("click", () => { userListMode = button.dataset.userView; document.querySelectorAll(".user-tab").forEach((tab) => tab.classList.toggle("active", tab === button)); renderEnrollmentList(); }));
 el("refresh-users").addEventListener("click", () => { renderEnrollmentList(); void reconcileRegistrationClaims(); void repairMissingGithubProfiles(users, true); }); el("generate-report").addEventListener("click", () => { void refreshReportFromServer(); }); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
+el("review-run-select").addEventListener("change", () => selectReviewRun(el("review-run-select").value));
+el("review-prev-question").addEventListener("click", () => moveReviewQuestion(-1)); el("review-next-question").addEventListener("click", () => moveReviewQuestion(1));
+el("review-prev-student").addEventListener("click", () => moveReviewStudent(-1)); el("review-next-student").addEventListener("click", () => moveReviewStudent(1));
+el("review-valid").addEventListener("click", () => { void saveReviewDecision("valid"); }); el("review-invalid").addEventListener("click", () => { void saveReviewDecision("invalid"); }); el("review-later").addEventListener("click", () => { void saveReviewDecision("review-later"); });
+el("review-confirm").addEventListener("click", () => { void confirmReviewComplete(); });
+el("review-copy-id").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(el("review-run-id").textContent); el("review-message").className = "message success"; el("review-message").textContent = "Grading run ID copied."; }
+  catch { el("review-message").className = "message"; el("review-message").textContent = "Copy was blocked by the browser. Select the run ID and copy it manually."; }
+});
 
 onAuthStateChanged(auth, async (user) => { await authResultPromise; currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; clearCachedGithubProfile(); el("github-login").disabled = false; showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("github-login").disabled = false; el("login-message").textContent = friendlyError(error); showView("login-view"); } });

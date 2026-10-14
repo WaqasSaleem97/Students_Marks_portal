@@ -56,6 +56,7 @@
       <button id="admin-tab-management" class="admin-tab active" type="button" role="tab" aria-selected="true" aria-controls="admin-panel-management" data-admin-panel="admin-panel-management"><span class="admin-tab-number" aria-hidden="true">1</span>Courses &amp; Registrations</button>
       <button id="admin-tab-students" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-students" data-admin-panel="admin-panel-students" tabindex="-1"><span class="admin-tab-number" aria-hidden="true">2</span>Students &amp; Marks</button>
       <button id="admin-tab-reports" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-reports" data-admin-panel="admin-panel-reports" tabindex="-1"><span class="admin-tab-number" aria-hidden="true">3</span>Reports</button>
+      <button id="admin-tab-review" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="admin-panel-review" data-admin-panel="admin-panel-review" tabindex="-1"><span class="admin-tab-number" aria-hidden="true">4</span>Grading Review</button>
     </nav>
 
     <section id="admin-panel-management" class="admin-tab-panel admin-management-panel" role="tabpanel" aria-labelledby="admin-tab-management" tabindex="0">
@@ -119,6 +120,51 @@
         <div class="report-controls"><label>Course<select id="report-course" required></select></label><label>Section<select id="report-section"><option value="both">All Sections</option></select></label><label>Report type<select id="report-type"><option value="overall">Overall marks</option><option value="category">Category-wise marks</option></select></label><label id="report-category-label" hidden>Category<select id="report-category"></select></label><button id="generate-report" type="button">Refresh &amp; generate</button></div>
         <p id="report-sync-status" class="message report-sync-status" aria-live="polite">Waiting for live Firestore marks…</p><p id="report-summary" class="report-summary">Select a course and refresh the report.</p><div class="table-wrap"><table id="report-table" hidden><thead id="report-head"></thead><tbody id="report-body"></tbody></table></div>
         <section id="csv-import-panel" class="csv-panel" hidden><h3>Bulk marks upload</h3><p id="csv-description">Download a template, enter marks, then upload it.</p><div class="csv-actions"><button id="download-template" class="secondary">1. Download template</button><label class="file-button">2. Choose completed CSV<input id="marks-csv" type="file" accept=".csv,text/csv"></label><button id="upload-marks" disabled>3. Upload marks</button></div><p id="csv-message" class="message"></p></section>
+      </section>
+    </section>
+
+    <section id="admin-panel-review" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-review" tabindex="0" hidden>
+      <section class="review-card">
+        <div class="section-heading review-heading"><div><p class="eyebrow">Before publishing</p><h2>Suspicious Screenshot Review</h2></div><span id="review-run-status" class="badge">No run selected</span></div>
+        <div class="review-run-toolbar">
+          <label>Grading run<select id="review-run-select"><option value="">Select a staged grading run</option></select></label>
+          <div id="review-run-actions" class="review-run-actions"></div>
+        </div>
+        <p id="review-run-summary" class="review-summary">Select a grading run. Only possible false positives and false negatives appear here.</p>
+
+        <div id="review-empty" class="empty-state review-empty"><h3>No review selected</h3><p>Run the autograder with Manual review enabled, then select the completed run above.</p></div>
+        <div id="review-workspace" hidden>
+          <div id="review-progress-row" class="review-progress-row">
+            <div><strong id="review-question-progress">Question —</strong><span id="review-student-progress">Student —</span></div>
+            <div class="review-nav"><button id="review-prev-question" class="small secondary" type="button">Previous question</button><button id="review-next-question" class="small secondary" type="button">Next question</button></div>
+          </div>
+          <article id="review-evidence-card" class="review-evidence-card">
+            <header class="review-evidence-header"><div><p id="review-category" class="eyebrow">Possible error</p><h3 id="review-criterion">Evidence</h3><p id="review-student">Student</p></div><span id="review-decision-status" class="badge">Pending</span></header>
+            <div class="review-comparison">
+              <section class="review-reference" aria-labelledby="review-reference-title">
+                <div class="review-pane-title"><h4 id="review-reference-title">Expected evidence</h4><code id="review-expected-filename"></code></div>
+                <a id="review-reference-link" class="review-image-frame" target="_blank" rel="noopener noreferrer" hidden><img id="review-reference-image" alt="Instructor reference evidence"></a>
+                <div id="review-reference-checklist" class="review-checklist"></div>
+              </section>
+              <section class="review-submission" aria-labelledby="review-submission-title">
+                <div class="review-pane-title"><h4 id="review-submission-title">Student screenshot</h4><a id="review-image-link" target="_blank" rel="noopener noreferrer">Open full image</a></div>
+                <a id="review-student-image-frame" class="review-image-frame" target="_blank" rel="noopener noreferrer"><img id="review-student-image" alt="Student evidence awaiting review"></a>
+                <div id="review-image-unavailable" class="review-image-unavailable" hidden>The immutable image URL is unavailable. Open the student's repository before deciding.</div>
+              </section>
+            </div>
+            <dl class="review-details"><div><dt>Automatic result</dt><dd id="review-automatic-result">—</dd></div><div><dt>Why flagged</dt><dd id="review-flag-reason">—</dd></div><div><dt>Mark effect</dt><dd id="review-mark-effect">—</dd></div><div><dt>Projected student score</dt><dd id="review-projected-score">—</dd></div></dl>
+            <details class="review-ocr"><summary>OCR text used by the automatic grader</summary><pre id="review-ocr-text"></pre></details>
+            <label class="review-note">Reviewer note (optional)<textarea id="review-note" rows="2" maxlength="1000" placeholder="Record a short reason for your decision"></textarea></label>
+            <div class="review-decisions" role="group" aria-label="Manual evidence decision"><button id="review-valid" class="review-valid" type="button">Evidence valid</button><button id="review-invalid" class="review-invalid" type="button">Evidence invalid</button><button id="review-later" class="review-later" type="button">Review later</button></div>
+            <div class="review-student-nav"><button id="review-prev-student" class="small secondary" type="button">Previous student</button><button id="review-next-student" class="small secondary" type="button">Next student</button></div>
+            <p id="review-message" class="message" role="status"></p>
+          </article>
+          <section id="review-finalize" class="review-finalize" hidden>
+            <div><h3>Review complete</h3><p>All suspicious screenshots have a final decision. Confirm the review, then open the short finalization workflow. The original grading workflow is already finished.</p></div>
+            <button id="review-confirm" type="button">Confirm review complete</button>
+            <div id="review-finalize-link" class="review-finalize-link" hidden><p>Use grading run ID <strong id="review-run-id">—</strong> when GitHub asks for it.</p><div><button id="review-copy-id" class="small secondary" type="button">Copy run ID</button><a id="review-open-finalize" class="button-link" target="_blank" rel="noopener noreferrer">Open finalization workflow</a></div></div>
+          </section>
+        </div>
       </section>
     </section>
   </main>
