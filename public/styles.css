@@ -173,6 +173,7 @@ legend { padding: 0 7px; font-weight: 800; }
 .report-controls button { width: auto; }
 .report-summary { padding: 13px 15px; background: #f7f9fc; border-radius: 10px; }
 .report-summary.duplicate-warning { border: 1px solid #f0c36b; background: #fff8e8; color: #7a4700; }
+.report-sync-status { margin: 12px 0; min-height: 1.35em; }
 #report-table td:nth-child(n+4), #report-table th:nth-child(n+4) { text-align: right; }
 .csv-panel { margin-top: 24px; padding: 20px; border: 1px solid #dce4f0; border-radius: 13px; background: #f8faff; }
 .csv-panel h3 { margin: 0; }

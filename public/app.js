@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
 import { getAuth, GithubAuthProvider, getAdditionalUserInfo, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-auth.js";
-import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, writeBatch, runTransaction, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where, getDocs, getDocsFromServer, writeBatch, runTransaction, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 import { beginMobileGithubSignIn, fetchGithubProfileById, githubAccountId, githubProfileFromFirebaseUser, GITHUB_PROFILE_CACHE_KEY, mergeGithubProfiles, resolveGithubProfile, shouldUseMobileGithubSignIn } from "./auth-flow.js";
 import { defaultRegistrationRange, normalizeRegistration, validateRegistrationRange, effectiveRegistrationRanges, formatRegistration, describeRegistrationRange, isRegistrationAllowed } from "./registration-ranges.js";
@@ -45,6 +45,8 @@ let syncingRegistrationClaims = false;
 let registrationClaimSyncQueued = false;
 let registrationClaimSyncError = "";
 let privateMarksReady = false;
+let privateMarksFromCache = true;
+let enrollmentMarksFromCache = true;
 let savingMarkVisibility = false;
 const githubProfileRepairAttempts = new Set();
 
@@ -124,10 +126,28 @@ function renderEditorIdentity(profile = {}) {
   identity.append(link || document.createTextNode(username || "No GitHub username"));
 }
 function percent(obtained, total) { return total > 0 ? `${((obtained / total) * 100).toFixed(1)}%` : "—"; }
-function markCategories(marks = {}) { return Array.isArray(marks.categories) ? marks.categories : []; }
-function categoryKey(name) { return String(name || "").trim().toLowerCase(); }
+function preciseTotal(values) { return Number(values.reduce((sum, value) => sum + Number(value || 0), 0).toFixed(10)); }
+function cleanMarkName(value) { return String(value || "").trim().replace(/\s+/g, " "); }
+function categoryKey(name) { return cleanMarkName(name).toLowerCase(); }
+function markCategories(marks = {}) {
+  const merged = new Map();
+  (Array.isArray(marks?.categories) ? marks.categories : []).forEach((sourceCategory) => {
+    const name = cleanMarkName(sourceCategory?.name); const key = categoryKey(name); if (!key) return;
+    if (!merged.has(key)) merged.set(key, { ...sourceCategory, name, items: [] });
+    const category = merged.get(key); const indexes = new Map(category.items.map((item, index) => [categoryKey(item.name), index]));
+    (Array.isArray(sourceCategory?.items) ? sourceCategory.items : []).forEach((sourceItem) => {
+      const itemName = cleanMarkName(sourceItem?.name); const itemKey = categoryKey(itemName); if (!itemKey) return;
+      const candidate = { ...sourceItem, name: itemName };
+      if (!indexes.has(itemKey)) { indexes.set(itemKey, category.items.length); category.items.push(candidate); return; }
+      const index = indexes.get(itemKey); const existing = category.items[index];
+      if ((Date.parse(candidate.graded_at || "") || 0) > (Date.parse(existing.graded_at || "") || 0)) category.items[index] = candidate;
+    });
+  });
+  return [...merged.values()];
+}
+function mergeMarks(...sources) { return { categories: markCategories({ categories: sources.flatMap((marks) => Array.isArray(marks?.categories) ? marks.categories : []) }) }; }
 function hiddenCategoryKeys(course) { return new Set((Array.isArray(course?.hidden_mark_categories) ? course.hidden_mark_categories : []).map(categoryKey).filter(Boolean)); }
-function fullMarksForEnrollment(enrollment = {}) { return privateMarksByEnrollment.get(enrollment.id)?.marks || enrollment.marks || { categories: [] }; }
+function fullMarksForEnrollment(enrollment = {}) { return mergeMarks(privateMarksByEnrollment.get(enrollment.id)?.marks, enrollment.marks); }
 function studentMarksForCourse(marks, course) { const hidden = hiddenCategoryKeys(course); return { categories: markCategories(marks).filter((category) => !hidden.has(categoryKey(category.name))) }; }
 function privateMarksDocument(enrollment, marks) { return { enrollment_id: enrollment.id, user_id: enrollment.user_id, course_id: enrollment.course_id, marks, updated_at: serverTimestamp() }; }
 function friendlyError(error) {
@@ -405,21 +425,23 @@ function renderCourseMarks(enrollment) {
 }
 
 function renderCategoryTable(category) {
-  const body = el("student-marks-body"); body.replaceChildren(); const items = category?.items || []; let obtained = 0, total = 0;
-  items.forEach((item) => { const o = Number(item.obtained || 0), t = Number(item.total || 0); obtained += o; total += t; const row = document.createElement("tr"); [item.name, o, t, percent(o, t)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.append(cell); }); body.append(row); });
+  const body = el("student-marks-body"); body.replaceChildren(); const items = category?.items || [];
+  items.forEach((item) => { const o = Number(item.obtained || 0), t = Number(item.total || 0); const row = document.createElement("tr"); [item.name, o, t, percent(o, t)].forEach((value) => { const cell = document.createElement("td"); cell.textContent = value; row.append(cell); }); body.append(row); });
+  const obtained = preciseTotal(items.map((item) => item.obtained)); const total = preciseTotal(items.map((item) => item.total));
   if (!items.length) { const row = document.createElement("tr"); const cell = document.createElement("td"); cell.colSpan = 4; cell.className = "empty-cell"; cell.textContent = "Marks have not been published."; row.append(cell); body.append(row); }
   el("category-obtained").textContent = items.length ? obtained : "—"; el("category-total").textContent = items.length ? total : "—"; el("category-percent").textContent = items.length ? percent(obtained, total) : "—";
 }
 
 function startAdminListeners() {
   if (unsubscribeUsers) unsubscribeUsers(); if (unsubscribeEnrollments) unsubscribeEnrollments(); if (unsubscribePrivateMarks) unsubscribePrivateMarks();
-  privateMarksReady = false; privateMarksByEnrollment = new Map(); renderMarksVisibility();
+  privateMarksReady = false; privateMarksFromCache = true; enrollmentMarksFromCache = true; privateMarksByEnrollment = new Map(); renderMarksVisibility();
   unsubscribePrivateMarks = onSnapshot(collection(db, "private_marks"), (snapshot) => {
-    privateMarksByEnrollment = new Map(snapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }])); privateMarksReady = true;
+    privateMarksByEnrollment = new Map(snapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }])); privateMarksReady = true; privateMarksFromCache = Boolean(snapshot.metadata?.fromCache);
+    updateReportSyncStatus();
     renderMarksVisibility(); refreshReportCategories(); if (!el("report-table").hidden) generateReport();
-  }, (error) => { privateMarksReady = false; renderMarksVisibility(); el("visibility-message").textContent = friendlyError(error); });
+  }, (error) => { privateMarksReady = false; renderMarksVisibility(); el("visibility-message").textContent = friendlyError(error); setReportSyncStatus(`Protected marks could not be synchronized. ${friendlyError(error)}`, true); });
   unsubscribeUsers = onSnapshot(collection(db, "users"), (snapshot) => { users = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); void reconcileRegistrationClaims(); void repairMissingGithubProfiles(); });
-  unsubscribeEnrollments = onSnapshot(collection(db, "enrollments"), (snapshot) => { enrollments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); renderEnrollmentList(); renderMarksVisibility(); refreshReportCategories(); if (!el("report-table").hidden) generateReport(); });
+  unsubscribeEnrollments = onSnapshot(collection(db, "enrollments"), (snapshot) => { enrollments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })); enrollmentMarksFromCache = Boolean(snapshot.metadata?.fromCache); updateReportSyncStatus(); renderEnrollmentList(); renderMarksVisibility(); refreshReportCategories(); if (!el("report-table").hidden) generateReport(); }, (error) => setReportSyncStatus(`Enrollment marks could not be synchronized. ${friendlyError(error)}`, true));
 }
 
 async function repairMissingGithubProfiles(profiles = users, retry = false) {
@@ -693,15 +715,29 @@ function collectCategories() { return [...el("category-editor").querySelectorAll
 el("student-editor").addEventListener("submit", async (event) => { event.preventDefault(); const enrollment = enrollments.find((item) => item.id === selectedEnrollmentId); if (!enrollment) return; const categories = collectCategories(); for (const category of categories) { if (!category.name || !category.items.length) { el("admin-message").textContent = "Every category needs a name and at least one entry."; return; } for (const item of category.items) if (item.obtained > item.total) { el("admin-message").textContent = `${item.name}: obtained marks cannot exceed total marks.`; return; } } try { const marks = { categories }; const batch = writeBatch(db); batch.set(doc(db, "private_marks", enrollment.id), privateMarksDocument(enrollment, marks)); batch.update(doc(db, "enrollments", enrollment.id), { section: el("editor-section").value, approved: el("editor-approved").value === "true", marks: studentMarksForCourse(marks, courseById(enrollment.course_id)), updated_at: serverTimestamp() }); await batch.commit(); el("admin-message").className = "message success"; el("admin-message").textContent = "Enrollment and marks saved."; } catch (error) { el("admin-message").className = "message"; el("admin-message").textContent = friendlyError(error); } });
 
 function approvedReportEnrollments() { const courseId = el("report-course").value; const section = el("report-section").value; return enrollments.filter((item) => item.approved && item.course_id === courseId && (section === "both" || item.section === section)); }
-function categoryDefinition(categoryName, scoped = approvedReportEnrollments()) { const map = new Map(); scoped.flatMap((item) => markCategories(fullMarksForEnrollment(item)).filter((category) => categoryKey(category.name) === categoryKey(categoryName)).flatMap((category) => category.items || [])).forEach((item) => { if (!map.has(item.name)) map.set(item.name, Number(item.total || 0)); }); return [...map].map(([name, total]) => ({ name, total })); }
+function categoryDefinition(categoryName, scoped = approvedReportEnrollments()) { const map = new Map(); scoped.flatMap((item) => markCategories(fullMarksForEnrollment(item)).filter((category) => categoryKey(category.name) === categoryKey(categoryName)).flatMap((category) => category.items || [])).forEach((item) => { const key = categoryKey(item.name); if (key && !map.has(key)) map.set(key, { name: cleanMarkName(item.name), total: Number(item.total || 0) }); }); return [...map.values()]; }
 function categoryItems(enrollment, categoryName) { return markCategories(fullMarksForEnrollment(enrollment)).filter((category) => categoryKey(category.name) === categoryKey(categoryName)).flatMap((category) => category.items || []); }
-function categoryScore(enrollment, categoryName) { const items = categoryItems(enrollment, categoryName); return { obtained: items.reduce((sum, item) => sum + Number(item.obtained || 0), 0), available: items.length > 0 }; }
+function categoryScore(enrollment, categoryName) { const items = categoryItems(enrollment, categoryName); return { obtained: preciseTotal(items.map((item) => item.obtained)), available: items.length > 0 }; }
 
-function refreshReportCategories() { const courseId = el("report-course")?.value; if (!courseId) return; const names = [...new Set(enrollments.filter((item) => item.course_id === courseId).flatMap((item) => markCategories(fullMarksForEnrollment(item)).map((category) => category.name)))].sort(); const old = el("report-category").value; el("report-category").replaceChildren(); names.forEach((name) => el("report-category").add(new Option(name, name))); if (names.includes(old)) el("report-category").value = old; }
+function reportCategoryNames(scoped) { const names = new Map(); scoped.flatMap((item) => markCategories(fullMarksForEnrollment(item))).forEach((category) => { const key = categoryKey(category.name); if (key && !names.has(key)) names.set(key, cleanMarkName(category.name)); }); return [...names.values()].sort((a, b) => a.localeCompare(b)); }
+function selectedReportCategory() { const select = el("report-category"); return cleanMarkName(select.value || select.options[select.selectedIndex]?.textContent || select.options[0]?.textContent); }
+function refreshReportCategories() { const courseId = el("report-course")?.value; if (!courseId) return; const names = reportCategoryNames(enrollments.filter((item) => item.course_id === courseId)); const oldKey = categoryKey(selectedReportCategory()); const select = el("report-category"); select.replaceChildren(); names.forEach((name) => { const option = document.createElement("option"); option.textContent = name; option.value = name; select.add(option); }); const selected = names.find((name) => categoryKey(name) === oldKey); select.selectedIndex = Math.max(0, selected ? names.indexOf(selected) : 0); }
+
+function setReportSyncStatus(message, error = false) { const status = el("report-sync-status"); status.textContent = message; status.className = error ? "message report-sync-status" : "message success report-sync-status"; }
+function updateReportSyncStatus() { setReportSyncStatus(privateMarksFromCache || enrollmentMarksFromCache ? "Showing cached marks while the portal reconnects to Firestore…" : "Live marks are synchronized with Firestore.", privateMarksFromCache || enrollmentMarksFromCache); }
+async function refreshReportFromServer() {
+  const button = el("generate-report"); button.disabled = true; button.textContent = "Refreshing…"; setReportSyncStatus("Loading current enrollment and protected marks directly from Firestore…");
+  try {
+    const [enrollmentSnapshot, privateSnapshot] = await Promise.all([getDocsFromServer(collection(db, "enrollments")), getDocsFromServer(collection(db, "private_marks"))]);
+    enrollments = enrollmentSnapshot.docs.map((item) => ({ id: item.id, ...item.data() })); privateMarksByEnrollment = new Map(privateSnapshot.docs.map((item) => [item.id, { id: item.id, ...item.data() }])); privateMarksReady = true; privateMarksFromCache = false; enrollmentMarksFromCache = false;
+    renderEnrollmentList(); renderMarksVisibility(); refreshReportCategories(); generateReport(); setReportSyncStatus(`Current marks loaded directly from Firestore at ${new Date().toLocaleTimeString()}.`);
+  } catch (error) { setReportSyncStatus(`Current marks could not be loaded from Firestore. ${friendlyError(error)}`, true); }
+  finally { button.disabled = false; button.textContent = "Refresh & generate"; }
+}
 
 function generateReport() {
-  const scoped = approvedReportEnrollments(); const type = el("report-type").value; const categoryName = el("report-category").value; const categoryNames = [...new Set(scoped.flatMap((item) => markCategories(fullMarksForEnrollment(item)).map((category) => category.name)))].sort();
-  if (type === "category") { const definitions = categoryDefinition(categoryName, scoped); currentReportColumns = ["Registration", "Student", "Section", ...definitions.map((item) => item.name), "Total"]; currentReport = scoped.map((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const items = categoryItems(enrollment, categoryName); const row = { Registration: profile.registration_number || "", Student: displayName(profile), Section: enrollment.section, Total: items.reduce((sum, item) => sum + Number(item.obtained || 0), 0) }; definitions.forEach((definition) => { const item = items.find((candidate) => candidate.name.toLowerCase() === definition.name.toLowerCase()); row[definition.name] = item?.obtained ?? ""; }); return row; }); currentReportTitle = `${courseById(el("report-course").value)?.code || "course"}-${categoryName}-report`; }
+  const scoped = approvedReportEnrollments(); const type = el("report-type").value; const categoryName = selectedReportCategory(); const categoryNames = reportCategoryNames(scoped);
+  if (type === "category") { const definitions = categoryDefinition(categoryName, scoped); currentReportColumns = ["Registration", "Student", "Section", ...definitions.map((item) => item.name), "Total"]; currentReport = scoped.map((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const items = categoryItems(enrollment, categoryName); const row = { Registration: profile.registration_number || "", Student: displayName(profile), Section: enrollment.section, Total: preciseTotal(items.map((item) => item.obtained)) }; definitions.forEach((definition) => { const item = items.find((candidate) => categoryKey(candidate.name) === categoryKey(definition.name)); row[definition.name] = item?.obtained ?? ""; }); return row; }); currentReportTitle = `${courseById(el("report-course").value)?.code || "course"}-${categoryName}-report`; }
   else { currentReportColumns = ["Registration", "Student", "Section", ...categoryNames]; currentReport = scoped.map((enrollment) => { const profile = profileById(enrollment.user_id) || {}; const row = { Registration: profile.registration_number || "", Student: displayName(profile), Section: enrollment.section }; categoryNames.forEach((name) => { const score = categoryScore(enrollment, name); row[name] = score.available ? score.obtained : ""; }); return row; }); currentReportTitle = `${courseById(el("report-course").value)?.code || "course"}-overall-report`; }
   currentReport.sort((a, b) => a.Registration.localeCompare(b.Registration)); renderReportTable(); const reportRegistrationCounts = new Map(); currentReport.forEach((row) => reportRegistrationCounts.set(row.Registration, (reportRegistrationCounts.get(row.Registration) || 0) + 1)); const duplicateRegistrations = [...reportRegistrationCounts].filter(([registration, count]) => registration && count > 1).map(([registration]) => registration); const summary = el("report-summary"); summary.textContent = `${courseById(el("report-course").value)?.name || "Course"}, ${el("report-section").value === "both" ? "All Sections" : `Section ${el("report-section").value}`}: ${currentReport.length} approved students.${duplicateRegistrations.length ? ` Warning: duplicate registration${duplicateRegistrations.length === 1 ? "" : "s"} ${duplicateRegistrations.join(", ")}.` : ""}`; summary.classList.toggle("duplicate-warning", duplicateRegistrations.length > 0); el("csv-import-panel").hidden = false;
 }
@@ -710,8 +746,8 @@ function renderReportTable() { const header = document.createElement("tr"); curr
 function saveCsv(rows, filename) { const escape = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`; const blob = new Blob(["\uFEFF" + rows.map((row) => row.map(escape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = filename.replaceAll(/[^a-zA-Z0-9._-]/g, "-"); link.click(); URL.revokeObjectURL(link.href); }
 function downloadReport() { saveCsv([currentReportColumns, ...currentReport.map((row) => currentReportColumns.map((column) => row[column]))], `${currentReportTitle}.csv`); }
 
-function templateDefinitions() { const scoped = approvedReportEnrollments(); if (el("report-type").value === "category") return categoryDefinition(el("report-category").value, scoped).map((item) => ({ category: el("report-category").value, ...item })); const map = new Map(); scoped.forEach((enrollment) => markCategories(fullMarksForEnrollment(enrollment)).forEach((category) => (category.items || []).forEach((item) => { const key = `${category.name}\u0000${item.name}`; if (!map.has(key)) map.set(key, { category: category.name, name: item.name, total: Number(item.total || 0) }); }))); return [...map.values()]; }
-function downloadTemplate() { const scoped = approvedReportEnrollments(), definitions = templateDefinitions(); if (!definitions.length) { el("csv-message").textContent = "No assessment fields exist for this course and section."; return; } const headers = ["Registration Number", "Student Name", "Section", ...definitions.map((item) => `${item.category} :: ${item.name} [Max:${item.total}]`)]; const rows = [headers, ...scoped.map((enrollment) => { const profile = profileById(enrollment.user_id) || {}; return [profile.registration_number || "", displayName(profile), enrollment.section, ...definitions.map((definition) => { const item = categoryItems(enrollment, definition.category).find((candidate) => candidate.name.toLowerCase() === definition.name.toLowerCase()); return item?.obtained ?? ""; })]; })]; saveCsv(rows, `${currentReportTitle}-template.csv`); }
+function templateDefinitions() { const scoped = approvedReportEnrollments(); if (el("report-type").value === "category") { const category = selectedReportCategory(); return categoryDefinition(category, scoped).map((item) => ({ category, ...item })); } const map = new Map(); scoped.forEach((enrollment) => markCategories(fullMarksForEnrollment(enrollment)).forEach((category) => (category.items || []).forEach((item) => { const key = `${categoryKey(category.name)}\u0000${categoryKey(item.name)}`; if (!map.has(key)) map.set(key, { category: cleanMarkName(category.name), name: cleanMarkName(item.name), total: Number(item.total || 0) }); }))); return [...map.values()]; }
+function downloadTemplate() { const scoped = approvedReportEnrollments(), definitions = templateDefinitions(); if (!definitions.length) { el("csv-message").textContent = "No assessment fields exist for this course and section."; return; } const headers = ["Registration Number", "Student Name", "Section", ...definitions.map((item) => `${item.category} :: ${item.name} [Max:${item.total}]`)]; const rows = [headers, ...scoped.map((enrollment) => { const profile = profileById(enrollment.user_id) || {}; return [profile.registration_number || "", displayName(profile), enrollment.section, ...definitions.map((definition) => { const item = categoryItems(enrollment, definition.category).find((candidate) => categoryKey(candidate.name) === categoryKey(definition.name)); return item?.obtained ?? ""; })]; })]; saveCsv(rows, `${currentReportTitle}-template.csv`); }
 function parseCsv(text) { const rows = []; let row = [], field = "", quoted = false; for (let i = 0; i < text.length; i++) { const char = text[i], next = text[i + 1]; if (quoted && char === '"' && next === '"') { field += '"'; i++; } else if (char === '"') quoted = !quoted; else if (char === "," && !quoted) { row.push(field); field = ""; } else if ((char === "\n" || char === "\r") && !quoted) { if (char === "\r" && next === "\n") i++; row.push(field); if (row.some(Boolean)) rows.push(row); row = []; field = ""; } else field += char; } row.push(field); if (row.some(Boolean)) rows.push(row); return rows; }
 
 async function uploadMarksCsv() {
@@ -719,7 +755,7 @@ async function uploadMarksCsv() {
   try {
     const rows = parseCsv((await file.text()).replace(/^\uFEFF/, "")); const headers = rows[0] || [];
     if (headers[0] !== "Registration Number" || headers[2] !== "Section") throw new Error("Use a template downloaded from this course report.");
-    const definitions = headers.slice(3).map((header) => { const match = header.match(/^(.*?) :: (.*?) \[Max:([0-9.]+)\]$/); if (!match) throw new Error(`Invalid column: ${header}`); return { category: match[1], name: match[2], total: Number(match[3]) }; });
+    const definitions = headers.slice(3).map((header) => { const match = header.match(/^(.*?) :: (.*?) \[Max:([0-9.]+)\]$/); if (!match) throw new Error(`Invalid column: ${header}`); return { category: cleanMarkName(match[1]), name: cleanMarkName(match[2]), total: Number(match[3]) }; });
     const scoped = approvedReportEnrollments();
     const updates = rows.slice(1).map((row, index) => {
       const registration = String(row[0]).trim().toUpperCase(), section = String(row[2]).trim().toUpperCase();
@@ -727,7 +763,7 @@ async function uploadMarksCsv() {
       if (!enrollment) throw new Error(`Row ${index + 2}: no approved matching enrollment.`);
       const values = definitions.map((definition, itemIndex) => { const obtained = Number(row[itemIndex + 3]); if (!Number.isFinite(obtained) || obtained < 0 || obtained > definition.total) throw new Error(`Row ${index + 2}: ${definition.name} must be 0-${definition.total}.`); return { ...definition, obtained }; });
       const uploadedCategories = new Set(values.map((value) => categoryKey(value.category))); const categories = markCategories(fullMarksForEnrollment(enrollment)).filter((category) => !uploadedCategories.has(categoryKey(category.name))); const grouped = new Map();
-      values.forEach((value) => { const key = categoryKey(value.category); if (!grouped.has(key)) grouped.set(key, { name: value.category, items: [] }); grouped.get(key).items.push({ name: value.name, obtained: value.obtained, total: value.total }); });
+      values.forEach((value) => { const key = categoryKey(value.category); if (!grouped.has(key)) grouped.set(key, { name: cleanMarkName(value.category), items: [] }); grouped.get(key).items.push({ name: cleanMarkName(value.name), obtained: value.obtained, total: value.total }); });
       categories.push(...grouped.values()); return { enrollment, marks: { categories } };
     });
     for (let start = 0; start < updates.length; start += 249) {
@@ -740,7 +776,7 @@ async function uploadMarksCsv() {
   finally { el("upload-marks").disabled = !el("marks-csv").files.length; }
 }
 
-function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribePrivateMarks, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribePrivateMarks = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = null; privateMarksByEnrollment = new Map(); privateMarksReady = false; registrationRanges = []; registrationRangesReady = false; resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
+function stopListeners() { [unsubscribeCourses, unsubscribeUsers, unsubscribeEnrollments, unsubscribePrivateMarks, unsubscribeProfile, unsubscribeMyEnrollments, unsubscribeRegistrationRanges].forEach((unsubscribe) => { if (unsubscribe) unsubscribe(); }); unsubscribeCourses = unsubscribeUsers = unsubscribeEnrollments = unsubscribePrivateMarks = unsubscribeProfile = unsubscribeMyEnrollments = unsubscribeRegistrationRanges = null; privateMarksByEnrollment = new Map(); privateMarksReady = false; privateMarksFromCache = true; enrollmentMarksFromCache = true; registrationRanges = []; registrationRangesReady = false; resetRegistrationRangeForm(); updateRegistrationRangeHelp(); }
 
 async function captureGithubProfile(result) {
   if (!result) return;
@@ -767,6 +803,6 @@ el("github-login").addEventListener("click", async () => {
 el("registration-course").addEventListener("change", updateRegistrationSections); el("report-course").addEventListener("change", updateReportSections); el("visibility-course").addEventListener("change", () => { el("visibility-message").textContent = ""; renderMarksVisibility(); }); el("save-mark-visibility").addEventListener("click", saveMarksVisibility); el("report-type").addEventListener("change", () => { el("report-category-label").hidden = el("report-type").value !== "category"; }); el("admin-course-filter").addEventListener("change", renderEnrollmentList); el("user-search").addEventListener("input", renderEnrollmentList);
 el("cancel-enrollment").addEventListener("click", () => { addingAnotherCourse = false; renderStudentState(); }); el("add-course").addEventListener("click", () => openEnrollmentForm(true)); el("pending-add-course").addEventListener("click", () => openEnrollmentForm(true));
 el("add-category").addEventListener("click", () => addCategory()); document.querySelectorAll(".user-tab").forEach((button) => button.addEventListener("click", () => { userListMode = button.dataset.userView; document.querySelectorAll(".user-tab").forEach((tab) => tab.classList.toggle("active", tab === button)); renderEnrollmentList(); }));
-el("refresh-users").addEventListener("click", () => { renderEnrollmentList(); void reconcileRegistrationClaims(); void repairMissingGithubProfiles(users, true); }); el("generate-report").addEventListener("click", generateReport); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
+el("refresh-users").addEventListener("click", () => { renderEnrollmentList(); void reconcileRegistrationClaims(); void repairMissingGithubProfiles(users, true); }); el("generate-report").addEventListener("click", () => { void refreshReportFromServer(); }); el("download-report").addEventListener("click", downloadReport); el("download-template").addEventListener("click", downloadTemplate); el("marks-csv").addEventListener("change", () => { el("upload-marks").disabled = !el("marks-csv").files.length; }); el("upload-marks").addEventListener("click", uploadMarksCsv); document.querySelectorAll(".signout-button").forEach((button) => button.addEventListener("click", () => signOut(auth)));
 
 onAuthStateChanged(auth, async (user) => { await authResultPromise; currentProfile = null; myEnrollments = []; addingAnotherCourse = false; stopListeners(); if (!user) { currentUser = null; clearCachedGithubProfile(); el("github-login").disabled = false; showView("login-view"); return; } try { await routeUser(user); } catch (error) { el("github-login").disabled = false; el("login-message").textContent = friendlyError(error); showView("login-view"); } });
