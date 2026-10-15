@@ -128,8 +128,13 @@
         <div class="section-heading review-heading"><div><p class="eyebrow">Before publishing</p><h2>Suspicious Screenshot Review</h2></div><span id="review-run-status" class="badge">No run selected</span></div>
         <div class="review-run-toolbar">
           <label>Grading run<select id="review-run-select"><option value="">Select a staged grading run</option></select></label>
-          <div id="review-run-actions" class="review-run-actions"></div>
+          <div id="review-run-actions" class="review-run-actions">
+            <span id="review-run-settings"></span>
+            <a id="review-open-source-run" target="_blank" rel="noopener noreferrer" hidden>Open original run</a>
+            <button id="review-delete-run" class="small danger" type="button" hidden>Delete grading run</button>
+          </div>
         </div>
+        <p id="review-run-message" class="message" role="status"></p>
         <p id="review-run-summary" class="review-summary">Select a grading run. Only possible false positives and false negatives appear here.</p>
 
         <div id="review-empty" class="empty-state review-empty"><h3>No review selected</h3><p>Run the autograder with Manual review enabled, then select the completed run above.</p></div>

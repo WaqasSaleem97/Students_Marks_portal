@@ -185,7 +185,7 @@ legend { padding: 0 7px; font-weight: 800; }
 .review-card { padding: 28px; background: #fff; border: 1px solid #e5e9f0; border-radius: 18px; box-shadow: 0 12px 35px rgba(23,32,51,.07); }
 .review-heading h2, .review-evidence-header h3, .review-finalize h3 { margin: 0; }
 .review-run-toolbar { display: grid; grid-template-columns: minmax(280px, 1fr) auto; gap: 16px; align-items: end; }
-.review-run-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-bottom: 2px; color: #667085; font-size: 12px; }
+.review-run-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; padding-bottom: 2px; color: #667085; font-size: 12px; }
 .review-summary { margin: 18px 0; padding: 13px 15px; border: 1px solid #dce4f0; border-radius: 10px; background: #f8faff; }
 .review-empty { padding: 55px 20px; border: 1px dashed #cfd6e1; border-radius: 13px; background: #fafbfc; }
 .review-empty h3 { margin: 0; }

@@ -37,6 +37,7 @@ test("expected-image selection can retain several full-credit examples", () => {
 
 test("the administrator portal exposes question-first comparison and finalization controls", () => {
   const html = fs.readFileSync(new URL("../public/index.html", import.meta.url), "utf8");
+  const app = fs.readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
   assert.match(html, /data-admin-panel="admin-panel-review"/);
   assert.match(html, /id="review-reference-image"/);
   assert.match(html, /id="review-reference-options"/);
@@ -52,4 +53,8 @@ test("the administrator portal exposes question-first comparison and finalizatio
   assert.match(html, />Evidence invalid</);
   assert.match(html, />Review later</);
   assert.match(html, /id="review-open-finalize"/);
+  assert.match(html, /id="review-delete-run"/);
+  assert.match(html, />Delete grading run</);
+  assert.match(app, /Published marks, sent emails, student submissions, and the GitHub Actions history will not be changed/);
+  assert.match(app, /\["items", "criteria", "results"\]/);
 });

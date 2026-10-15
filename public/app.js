@@ -64,6 +64,7 @@ let reviewStudentIndex = 0;
 let reviewReferenceIndex = 0;
 let savingReviewDecision = false;
 let savingReferenceSelection = false;
+let deletingReviewRunId = "";
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 const adminTabs = [...document.querySelectorAll(".admin-tab")];
@@ -520,11 +521,13 @@ function renderReviewPanel() {
   const run = gradingRuns.find((candidate) => candidate.id === selectedReviewRunId);
   const status = el("review-run-status"); status.className = "badge"; status.textContent = run ? reviewStatusLabel(run.status) : "No run selected";
   if (run && ["ready", "finalizing", "finalized"].includes(run.status)) status.classList.add("published");
-  const actions = el("review-run-actions"); actions.replaceChildren();
-  if (run) {
-    const settings = document.createElement("span"); settings.textContent = `Publish marks: ${run.requested_update_firestore ? "yes" : "no"} · Email: ${run.requested_send_email ? "yes" : "no"}`; actions.append(settings);
-    if (run.source_workflow_url) { const link = document.createElement("a"); link.href = run.source_workflow_url; link.target = "_blank"; link.rel = "noopener noreferrer"; link.textContent = "Open original run"; actions.append(link); }
-  }
+  el("review-run-settings").textContent = run ? `Publish marks: ${run.requested_update_firestore ? "yes" : "no"} · Email: ${run.requested_send_email ? "yes" : "no"}` : "";
+  const sourceLink = el("review-open-source-run"); sourceLink.hidden = !run?.source_workflow_url;
+  if (run?.source_workflow_url) sourceLink.href = run.source_workflow_url; else sourceLink.removeAttribute("href");
+  const deleteRun = el("review-delete-run"); deleteRun.hidden = !run;
+  const activeRun = run && ["staging", "finalizing"].includes(run.status);
+  deleteRun.disabled = Boolean(run && (deletingReviewRunId || activeRun));
+  deleteRun.title = activeRun ? "Wait for the active grading workflow to finish before deleting this run." : "Permanently remove this grading run from the review portal.";
 
   if (!run) {
     el("review-run-summary").textContent = "Select a grading run. Only possible false positives and false negatives appear here.";
@@ -750,6 +753,49 @@ async function confirmReviewComplete() {
     el("review-message").className = "message success"; el("review-message").textContent = "Review confirmed. Open the finalization workflow below; no grading runner is waiting.";
   } catch (error) { el("review-message").className = "message"; el("review-message").textContent = friendlyError(error); }
   finally { el("review-confirm").disabled = false; }
+}
+
+async function deleteDocumentReferences(references) {
+  for (let start = 0; start < references.length; start += 450) {
+    const batch = writeBatch(db);
+    references.slice(start, start + 450).forEach((reference) => batch.delete(reference));
+    await batch.commit();
+  }
+}
+
+async function deleteSelectedGradingRun() {
+  const run = gradingRuns.find((candidate) => candidate.id === selectedReviewRunId);
+  if (!run || deletingReviewRunId) return;
+  if (["staging", "finalizing"].includes(run.status)) {
+    el("review-run-message").className = "message";
+    el("review-run-message").textContent = "This grading workflow is still active. Wait for it to finish before deleting the run.";
+    return;
+  }
+  const warning = `Delete grading run ${reviewRunLabel(run)}? This permanently removes its review items, expected-evidence selections, and provisional results from this portal. Published marks, sent emails, student submissions, and the GitHub Actions history will not be changed. This cannot be undone.`;
+  if (!confirm(warning)) return;
+  deletingReviewRunId = run.id;
+  el("review-run-message").className = "message";
+  el("review-run-message").textContent = "Deleting grading run and its stored review data…";
+  renderReviewPanel();
+  try {
+    const childCollections = ["items", "criteria", "results"];
+    const snapshots = await Promise.all(childCollections.map((name) => getDocs(collection(db, "grading_runs", run.id, name))));
+    await deleteDocumentReferences(snapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.ref)));
+    if (selectedReviewRunId === run.id) selectReviewRun("");
+    await deleteDoc(doc(db, "grading_runs", run.id));
+    el("review-run-message").className = "message success";
+    el("review-run-message").textContent = `Grading run #${run.source_run_number || run.run_id || run.id} was deleted. Published marks and GitHub Actions history were not changed.`;
+  } catch (error) {
+    if (!selectedReviewRunId) {
+      el("review-run-select").value = run.id;
+      selectReviewRun(run.id);
+    }
+    el("review-run-message").className = "message";
+    el("review-run-message").textContent = `The grading run could not be completely deleted. ${friendlyError(error)}`;
+  } finally {
+    deletingReviewRunId = "";
+    renderReviewPanel();
+  }
 }
 
 async function repairMissingGithubProfiles(profiles = users, retry = false) {
@@ -1120,6 +1166,7 @@ el("review-reference-invalid").addEventListener("click", () => { void invalidate
 el("review-save-references").addEventListener("click", () => { void saveReferenceSelection(); });
 el("review-valid").addEventListener("click", () => { void saveReviewDecision("valid"); }); el("review-invalid").addEventListener("click", () => { void saveReviewDecision("invalid"); }); el("review-later").addEventListener("click", () => { void saveReviewDecision("review-later"); });
 el("review-confirm").addEventListener("click", () => { void confirmReviewComplete(); });
+el("review-delete-run").addEventListener("click", () => { void deleteSelectedGradingRun(); });
 el("review-copy-id").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(el("review-run-id").textContent); el("review-message").className = "message success"; el("review-message").textContent = "Grading run ID copied."; }
   catch { el("review-message").className = "message"; el("review-message").textContent = "Copy was blocked by the browser. Select the run ID and copy it manually."; }
