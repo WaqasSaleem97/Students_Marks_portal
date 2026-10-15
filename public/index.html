@@ -161,13 +161,13 @@
                 <a id="review-student-image-frame" class="review-image-frame" target="_blank" rel="noopener noreferrer"><img id="review-student-image" alt="Student evidence awaiting review"></a>
                 <div id="review-image-unavailable" class="review-image-unavailable" hidden>The immutable image URL is unavailable. Open the student's repository before deciding.</div>
                 <div class="review-decisions" role="group" aria-label="Manual evidence decision"><button id="review-valid" class="review-valid" type="button">Evidence valid</button><button id="review-invalid" class="review-invalid" type="button">Evidence invalid</button><button id="review-later" class="review-later" type="button">Review later</button></div>
+                <label class="review-note">Reviewer note (optional)<textarea id="review-note" rows="2" maxlength="1000" placeholder="Record a short reason for your decision"></textarea></label>
+                <div class="review-student-nav"><button id="review-prev-student" class="small secondary" type="button">Previous student</button><button id="review-next-student" class="small secondary" type="button">Next student</button></div>
+                <p id="review-message" class="message" role="status"></p>
               </section>
             </div>
             <dl class="review-details"><div><dt>Automatic result</dt><dd id="review-automatic-result">—</dd></div><div><dt>Why flagged</dt><dd id="review-flag-reason">—</dd></div><div><dt>Mark effect</dt><dd id="review-mark-effect">—</dd></div><div><dt>Projected student score</dt><dd id="review-projected-score">—</dd></div></dl>
             <details class="review-ocr"><summary>OCR text used by the automatic grader</summary><pre id="review-ocr-text"></pre></details>
-            <label class="review-note">Reviewer note (optional)<textarea id="review-note" rows="2" maxlength="1000" placeholder="Record a short reason for your decision"></textarea></label>
-            <div class="review-student-nav"><button id="review-prev-student" class="small secondary" type="button">Previous student</button><button id="review-next-student" class="small secondary" type="button">Next student</button></div>
-            <p id="review-message" class="message" role="status"></p>
           </article>
           <section id="review-finalize" class="review-finalize" hidden>
             <div><h3>Review complete</h3><p>All suspicious screenshots have a final decision. Confirm the review, then open the short finalization workflow. The original grading workflow is already finished.</p></div>

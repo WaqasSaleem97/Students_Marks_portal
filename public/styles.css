@@ -229,7 +229,7 @@ legend { padding: 0 7px; font-weight: 800; }
 .review-ocr { margin: 0 18px 16px; }
 .review-ocr summary { cursor: pointer; color: #475467; font-weight: 700; }
 .review-ocr pre { max-height: 260px; overflow: auto; padding: 12px; border-radius: 9px; background: #172033; color: #eef4ff; white-space: pre-wrap; }
-.review-note { margin: 0 18px 14px; }
+.review-note { margin-top: 12px; }
 .review-note textarea { width: 100%; margin-top: 7px; padding: 11px 12px; resize: vertical; border: 1px solid #cfd6e1; border-radius: 9px; font: inherit; }
 .review-decisions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 12px; }
 .review-valid { background: #087a55; }
@@ -238,8 +238,8 @@ legend { padding: 0 7px; font-weight: 800; }
 .review-invalid:hover, .review-invalid.selected { background: #841c14; box-shadow: 0 0 0 3px rgba(180,35,24,.18); }
 .review-later { background: #e9edf3; color: #172033; }
 .review-later:hover, .review-later.selected { background: #cfd7e2; box-shadow: 0 0 0 3px rgba(71,84,103,.15); }
-.review-student-nav { padding: 14px 18px; border-top: 1px solid #e5e9f0; background: #f8fafc; }
-.review-evidence-card > .message { margin: 0; padding: 0 18px 14px; background: #f8fafc; }
+.review-student-nav { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e9f0; }
+.review-submission > .message { margin: 10px 0 0; }
 .review-finalize { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: center; margin-top: 18px; padding: 20px; border: 1px solid #92d4ba; border-radius: 13px; background: #edf9f4; }
 .review-finalize p { margin: 6px 0 0; }
 .review-finalize > button { width: auto; background: #087a55; }
