@@ -208,6 +208,8 @@ legend { padding: 0 7px; font-weight: 800; }
 .review-reference-meta { min-height: 1.4em; margin: 0 0 10px; color: #344054; font-size: 12px; }
 .review-image-frame { display: grid; min-height: 300px; max-height: 620px; place-items: center; overflow: auto; border-radius: 10px; background: #202631; }
 .review-image-frame img { display: block; max-width: 100%; max-height: 600px; object-fit: contain; }
+.review-reference-decisions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.review-reference-decisions + .message { margin: 8px 0 0; }
 .review-checklist { min-height: 300px; padding: 20px; border: 1px solid #dae2ec; border-radius: 10px; background: #f8fafc; }
 .review-checklist p { margin: 0 0 12px; color: #7a4700; font-size: 12px; }
 .review-checklist ol { margin: 0; padding-left: 22px; }
@@ -278,5 +280,5 @@ legend { padding: 0 7px; font-weight: 800; }
   .header-actions { align-items: stretch; flex-direction: column; }
   .review-progress-row, .review-evidence-header { align-items: stretch; flex-direction: column; }
   .review-nav, .review-student-nav, .review-finalize-link > div { display: grid; grid-template-columns: 1fr; }
-  .review-decisions { grid-template-columns: 1fr; }
+  .review-decisions, .review-reference-decisions { grid-template-columns: 1fr; }
 }
