@@ -231,7 +231,7 @@ legend { padding: 0 7px; font-weight: 800; }
 .review-ocr pre { max-height: 260px; overflow: auto; padding: 12px; border-radius: 9px; background: #172033; color: #eef4ff; white-space: pre-wrap; }
 .review-note { margin: 0 18px 14px; }
 .review-note textarea { width: 100%; margin-top: 7px; padding: 11px 12px; resize: vertical; border: 1px solid #cfd6e1; border-radius: 9px; font: inherit; }
-.review-decisions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 0 18px 14px; }
+.review-decisions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 12px; }
 .review-valid { background: #087a55; }
 .review-valid:hover, .review-valid.selected { background: #035a3e; box-shadow: 0 0 0 3px rgba(8,122,85,.2); }
 .review-invalid { background: #b42318; }
