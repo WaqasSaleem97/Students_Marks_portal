@@ -202,7 +202,7 @@ legend { padding: 0 7px; font-weight: 800; }
 .review-pane-title h4 { margin: 0; }
 .review-pane-title code { max-width: 60%; overflow-wrap: anywhere; text-align: right; }
 .review-pane-title a { color: #24469b; font-size: 12px; font-weight: 750; }
-.review-reference-status { display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; color: #475467; font-size: 12px; font-weight: 750; }
+.review-reference-status { display: flex; min-height: 34px; align-items: center; justify-content: space-between; gap: 10px; margin: 12px 0 8px; color: #475467; font-size: 12px; font-weight: 750; }
 .review-reference-status > div { display: flex; gap: 6px; }
 .review-reference-status button { padding: 6px 9px; }
 .review-reference-meta { min-height: 1.4em; margin: 0 0 10px; color: #344054; font-size: 12px; }

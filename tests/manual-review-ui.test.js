@@ -44,6 +44,7 @@ test("the administrator portal exposes question-first comparison and finalizatio
   assert.doesNotMatch(html, /id="review-reference-valid"/);
   assert.match(html, />Mark as invalid evidence</);
   assert.ok(html.indexOf('id="review-reference-image"') < html.indexOf('id="review-reference-invalid"'));
+  assert.ok(html.indexOf('id="review-reference-image"') < html.indexOf('id="review-reference-count"'));
   assert.match(html, />Save expected images</);
   assert.match(html, /id="review-student-image"/);
   assert.match(html, />Evidence valid</);
