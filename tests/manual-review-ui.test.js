@@ -40,9 +40,10 @@ test("the administrator portal exposes question-first comparison and finalizatio
   assert.match(html, /data-admin-panel="admin-panel-review"/);
   assert.match(html, /id="review-reference-image"/);
   assert.match(html, /id="review-reference-options"/);
-  assert.match(html, /id="review-reference-valid"/);
   assert.match(html, /id="review-reference-invalid"/);
-  assert.ok(html.indexOf('id="review-reference-image"') < html.indexOf('id="review-reference-valid"'));
+  assert.doesNotMatch(html, /id="review-reference-valid"/);
+  assert.match(html, />Mark as invalid evidence</);
+  assert.ok(html.indexOf('id="review-reference-image"') < html.indexOf('id="review-reference-invalid"'));
   assert.match(html, />Save expected images</);
   assert.match(html, /id="review-student-image"/);
   assert.match(html, />Evidence valid</);
