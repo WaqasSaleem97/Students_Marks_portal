@@ -579,10 +579,6 @@ function renderReviewPanel() {
       : "";
     el("review-reference-prev").disabled = references.length < 2 || reviewReferenceIndex === 0;
     el("review-reference-next").disabled = references.length < 2 || reviewReferenceIndex >= references.length - 1;
-    const checklist = el("review-reference-checklist"); checklist.replaceChildren();
-    const help = document.createElement("p"); help.textContent = referenceUrl ? "Compare the student screenshot with this approved example and the requirement checklist. Mark the expected image invalid only when that specific evidence is wrong." : "No expected image is selected for this criterion; use this fixed requirement checklist."; checklist.append(help);
-    const list = document.createElement("ol"); (item.expected_evidence?.length ? item.expected_evidence : group.expectedEvidence).forEach((entry) => { const row = document.createElement("li"); row.textContent = entry; list.append(row); }); checklist.append(list);
-
     const manager = el("review-reference-manager"); manager.hidden = !criterion;
     const options = el("review-reference-options"); options.replaceChildren();
     if (criterion) {
@@ -596,7 +592,7 @@ function renderReviewPanel() {
         text.append(title, detail); option.append(checkbox, text); options.append(option);
       }
       if (!(criterion.reference_candidates || []).length) {
-        const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No clean full-credit image is available for this criterion. Use the written checklist."; options.append(empty);
+        const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No clean full-credit image is available for this criterion."; options.append(empty);
       }
       el("review-save-references").disabled = savingReferenceSelection || ["staging", "finalizing", "finalized"].includes(run.status) || !(criterion.reference_candidates || []).length;
     }

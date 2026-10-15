@@ -42,6 +42,7 @@ test("the administrator portal exposes question-first comparison and finalizatio
   assert.match(html, /id="review-reference-options"/);
   assert.match(html, /id="review-reference-invalid"/);
   assert.doesNotMatch(html, /id="review-reference-valid"/);
+  assert.doesNotMatch(html, /id="review-reference-checklist"/);
   assert.match(html, />Mark as invalid evidence</);
   assert.ok(html.indexOf('id="review-reference-image"') < html.indexOf('id="review-reference-invalid"'));
   assert.ok(html.indexOf('id="review-reference-image"') < html.indexOf('id="review-reference-count"'));
