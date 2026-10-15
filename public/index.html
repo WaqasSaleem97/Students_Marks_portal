@@ -148,7 +148,7 @@
             <div class="review-comparison">
               <section class="review-reference" aria-labelledby="review-reference-title">
                 <div class="review-pane-title"><h4 id="review-reference-title">Expected evidence</h4><code id="review-expected-filename"></code></div>
-                <a id="review-reference-link" class="review-image-frame" target="_blank" rel="noopener noreferrer" hidden><img id="review-reference-image" alt="Selected expected evidence"></a>
+                <a id="review-reference-link" class="review-image-frame" aria-haspopup="dialog" aria-controls="review-image-dialog" title="Preview and zoom expected evidence" hidden><img id="review-reference-image" alt="Selected expected evidence"></a>
                 <div id="review-reference-unavailable" class="review-image-unavailable" hidden>No expected image is selected. Select a clean full-credit example below.</div>
                 <div class="review-reference-status"><span id="review-reference-count">No expected image selected</span><div><button id="review-reference-prev" class="small secondary" type="button" aria-label="Previous expected image">Previous</button><button id="review-reference-next" class="small secondary" type="button" aria-label="Next expected image">Next</button></div></div>
                 <p id="review-reference-meta" class="review-reference-meta"></p>
@@ -164,7 +164,7 @@
               </section>
               <section class="review-submission" aria-labelledby="review-submission-title">
                 <div class="review-pane-title"><h4 id="review-submission-title">Student screenshot</h4><a id="review-image-link" target="_blank" rel="noopener noreferrer">Open full image</a></div>
-                <a id="review-student-image-frame" class="review-image-frame" target="_blank" rel="noopener noreferrer"><img id="review-student-image" alt="Student evidence awaiting review"></a>
+                <a id="review-student-image-frame" class="review-image-frame" aria-haspopup="dialog" aria-controls="review-image-dialog" title="Preview and zoom student evidence"><img id="review-student-image" alt="Student evidence awaiting review"></a>
                 <div id="review-image-unavailable" class="review-image-unavailable" hidden>The immutable image URL is unavailable. Open the student's repository before deciding.</div>
                 <div class="review-decisions" role="group" aria-label="Manual evidence decision"><button id="review-valid" class="review-valid" type="button">Evidence valid</button><button id="review-invalid" class="review-invalid" type="button">Evidence invalid</button><button id="review-later" class="review-later" type="button">Review later</button></div>
                 <label class="review-note">Reviewer note (optional)<textarea id="review-note" rows="2" maxlength="1000" placeholder="Record a short reason for your decision"></textarea></label>
@@ -184,6 +184,32 @@
       </section>
     </section>
   </main>
+
+  <dialog id="review-image-dialog" class="image-viewer-dialog" aria-labelledby="image-viewer-title" aria-describedby="image-viewer-help">
+    <section class="image-viewer-shell">
+      <header class="image-viewer-header">
+        <div>
+          <p class="eyebrow">Evidence preview</p>
+          <h2 id="image-viewer-title">Screenshot</h2>
+          <p id="image-viewer-description"></p>
+        </div>
+        <button id="image-viewer-close" class="image-viewer-close" type="button" aria-label="Close image preview" title="Close (Esc)">×</button>
+      </header>
+      <div class="image-viewer-toolbar" role="toolbar" aria-label="Image zoom controls">
+        <div class="image-viewer-zoom-controls">
+          <button id="image-viewer-zoom-out" class="image-viewer-tool" type="button" aria-label="Zoom out" title="Zoom out (-)">−</button>
+          <output id="image-viewer-zoom-level" aria-live="polite">100%</output>
+          <button id="image-viewer-zoom-in" class="image-viewer-tool" type="button" aria-label="Zoom in" title="Zoom in (+)">+</button>
+          <button id="image-viewer-fit" class="image-viewer-fit" type="button" title="Fit image to window (0)">Fit to window</button>
+        </div>
+        <a id="image-viewer-original" class="image-viewer-original" target="_blank" rel="noopener noreferrer">Open original</a>
+      </div>
+      <div id="image-viewer-stage" class="image-viewer-stage" tabindex="0" aria-label="Zoomable image. Use the mouse wheel or zoom controls to resize it.">
+        <div class="image-viewer-canvas"><img id="image-viewer-image" alt="Enlarged evidence screenshot" draggable="false"></div>
+      </div>
+      <p id="image-viewer-help" class="image-viewer-help">Mouse wheel or +/− to zoom · drag to move · double-click to enlarge · press 0 to fit · Esc to close</p>
+    </section>
+  </dialog>
 
   <template id="category-template"><fieldset class="category-block"><div class="category-heading"><input class="category-name" required placeholder="Category name"><div class="category-actions"><button class="small secondary add-mark" type="button">+ Add entry</button><button class="small danger remove-category" type="button">Remove</button></div></div><div class="category-rows"></div></fieldset></template>
   <template id="mark-row-template"><div class="mark-row"><input class="mark-name" required placeholder="Assessment name"><input class="mark-obtained" type="number" min="0" step="0.01" required placeholder="Obtained"><input class="mark-total" type="number" min="0.01" step="0.01" required placeholder="Total"><button class="remove-row" type="button">×</button></div></template>

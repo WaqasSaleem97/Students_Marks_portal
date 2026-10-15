@@ -57,4 +57,11 @@ test("the administrator portal exposes question-first comparison and finalizatio
   assert.match(html, />Delete grading run</);
   assert.match(app, /Published marks, sent emails, student submissions, and the GitHub Actions history will not be changed/);
   assert.match(app, /\["items", "criteria", "results"\]/);
+  assert.match(html, /<dialog id="review-image-dialog"/);
+  assert.match(html, /id="image-viewer-zoom-in"/);
+  assert.match(html, /id="image-viewer-zoom-out"/);
+  assert.match(html, /id="image-viewer-fit"/);
+  assert.match(html, /aria-haspopup="dialog"/);
+  assert.match(app, /dialog\.showModal\(\)/);
+  assert.match(app, /addEventListener\("wheel"/);
 });

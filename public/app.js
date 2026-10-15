@@ -65,6 +65,10 @@ let reviewReferenceIndex = 0;
 let savingReviewDecision = false;
 let savingReferenceSelection = false;
 let deletingReviewRunId = "";
+const imageViewerState = { zoom: 1, baseWidth: 0, baseHeight: 0, dragging: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0, trigger: null };
+const IMAGE_VIEWER_MIN_ZOOM = 0.5;
+const IMAGE_VIEWER_MAX_ZOOM = 4;
+const IMAGE_VIEWER_ZOOM_STEP = 0.25;
 
 function showView(id) { views.forEach((view) => { el(view).hidden = view !== id; }); }
 const adminTabs = [...document.querySelectorAll(".admin-tab")];
@@ -516,6 +520,68 @@ function reviewStatusLabel(status) {
 }
 
 function markNumber(value) { return Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 2 }); }
+
+function clampImageViewerZoom(value) {
+  return Math.min(IMAGE_VIEWER_MAX_ZOOM, Math.max(IMAGE_VIEWER_MIN_ZOOM, value));
+}
+
+function applyImageViewerZoom(nextZoom, anchor = null) {
+  const stage = el("image-viewer-stage"); const image = el("image-viewer-image");
+  if (!imageViewerState.baseWidth || !imageViewerState.baseHeight) return;
+  const previousZoom = imageViewerState.zoom;
+  imageViewerState.zoom = clampImageViewerZoom(nextZoom);
+  const stageRect = stage.getBoundingClientRect();
+  const anchorX = anchor ? anchor.x - stageRect.left : stage.clientWidth / 2;
+  const anchorY = anchor ? anchor.y - stageRect.top : stage.clientHeight / 2;
+  const contentX = stage.scrollLeft + anchorX;
+  const contentY = stage.scrollTop + anchorY;
+  image.style.width = `${Math.round(imageViewerState.baseWidth * imageViewerState.zoom)}px`;
+  image.style.height = `${Math.round(imageViewerState.baseHeight * imageViewerState.zoom)}px`;
+  el("image-viewer-zoom-level").textContent = `${Math.round(imageViewerState.zoom * 100)}%`;
+  el("image-viewer-zoom-out").disabled = imageViewerState.zoom <= IMAGE_VIEWER_MIN_ZOOM;
+  el("image-viewer-zoom-in").disabled = imageViewerState.zoom >= IMAGE_VIEWER_MAX_ZOOM;
+  stage.classList.toggle("is-zoomed", imageViewerState.zoom > 1);
+  const ratio = previousZoom ? imageViewerState.zoom / previousZoom : 1;
+  requestAnimationFrame(() => {
+    stage.scrollLeft = Math.max(0, contentX * ratio - anchorX);
+    stage.scrollTop = Math.max(0, contentY * ratio - anchorY);
+  });
+}
+
+function fitImageViewer() {
+  const stage = el("image-viewer-stage"); const image = el("image-viewer-image");
+  if (!image.naturalWidth || !image.naturalHeight) return;
+  const horizontalSpace = Math.max(120, stage.clientWidth - 36);
+  const verticalSpace = Math.max(120, stage.clientHeight - 36);
+  const fitScale = Math.min(1, horizontalSpace / image.naturalWidth, verticalSpace / image.naturalHeight);
+  imageViewerState.baseWidth = Math.max(1, Math.round(image.naturalWidth * fitScale));
+  imageViewerState.baseHeight = Math.max(1, Math.round(image.naturalHeight * fitScale));
+  imageViewerState.zoom = 1;
+  stage.scrollLeft = 0; stage.scrollTop = 0;
+  applyImageViewerZoom(1);
+}
+
+function openImageViewer(source, title, description, trigger) {
+  if (!source) return;
+  const dialog = el("review-image-dialog"); const image = el("image-viewer-image");
+  imageViewerState.trigger = trigger || document.activeElement;
+  imageViewerState.zoom = 1; imageViewerState.baseWidth = 0; imageViewerState.baseHeight = 0;
+  el("image-viewer-title").textContent = title || "Evidence screenshot";
+  el("image-viewer-description").textContent = description || "";
+  el("image-viewer-original").href = source;
+  image.alt = `${title || "Evidence"} enlarged preview`;
+  image.onload = () => requestAnimationFrame(fitImageViewer);
+  image.src = source;
+  document.body.classList.add("image-viewer-open");
+  if (!dialog.open) dialog.showModal();
+  if (image.complete && image.naturalWidth) requestAnimationFrame(fitImageViewer);
+  requestAnimationFrame(() => el("image-viewer-stage").focus());
+}
+
+function closeImageViewer() {
+  const dialog = el("review-image-dialog");
+  if (dialog.open) dialog.close();
+}
 
 function renderReviewPanel() {
   const run = gradingRuns.find((candidate) => candidate.id === selectedReviewRunId);
@@ -1167,6 +1233,56 @@ el("review-save-references").addEventListener("click", () => { void saveReferenc
 el("review-valid").addEventListener("click", () => { void saveReviewDecision("valid"); }); el("review-invalid").addEventListener("click", () => { void saveReviewDecision("invalid"); }); el("review-later").addEventListener("click", () => { void saveReviewDecision("review-later"); });
 el("review-confirm").addEventListener("click", () => { void confirmReviewComplete(); });
 el("review-delete-run").addEventListener("click", () => { void deleteSelectedGradingRun(); });
+el("review-reference-link").addEventListener("click", (event) => {
+  event.preventDefault();
+  const description = [el("review-expected-filename").textContent, el("review-reference-meta").textContent].filter(Boolean).join(" · ");
+  openImageViewer(el("review-reference-link").href, "Expected evidence", description, event.currentTarget);
+});
+el("review-student-image-frame").addEventListener("click", (event) => {
+  event.preventDefault();
+  const description = [el("review-student").textContent, el("review-expected-filename").textContent].filter(Boolean).join(" · ");
+  openImageViewer(el("review-student-image-frame").href, "Student screenshot", description, event.currentTarget);
+});
+el("image-viewer-close").addEventListener("click", closeImageViewer);
+el("image-viewer-zoom-out").addEventListener("click", () => applyImageViewerZoom(imageViewerState.zoom - IMAGE_VIEWER_ZOOM_STEP));
+el("image-viewer-zoom-in").addEventListener("click", () => applyImageViewerZoom(imageViewerState.zoom + IMAGE_VIEWER_ZOOM_STEP));
+el("image-viewer-fit").addEventListener("click", fitImageViewer);
+el("image-viewer-stage").addEventListener("wheel", (event) => {
+  event.preventDefault();
+  applyImageViewerZoom(imageViewerState.zoom + (event.deltaY < 0 ? IMAGE_VIEWER_ZOOM_STEP : -IMAGE_VIEWER_ZOOM_STEP), { x: event.clientX, y: event.clientY });
+}, { passive: false });
+el("image-viewer-stage").addEventListener("dblclick", (event) => {
+  applyImageViewerZoom(imageViewerState.zoom === 1 ? 2 : 1, { x: event.clientX, y: event.clientY });
+});
+el("image-viewer-stage").addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || event.pointerType === "touch" || imageViewerState.zoom <= 1) return;
+  const stage = event.currentTarget; imageViewerState.dragging = true;
+  imageViewerState.startX = event.clientX; imageViewerState.startY = event.clientY;
+  imageViewerState.scrollLeft = stage.scrollLeft; imageViewerState.scrollTop = stage.scrollTop;
+  stage.classList.add("is-dragging"); stage.setPointerCapture(event.pointerId);
+});
+el("image-viewer-stage").addEventListener("pointermove", (event) => {
+  if (!imageViewerState.dragging) return;
+  event.currentTarget.scrollLeft = imageViewerState.scrollLeft - (event.clientX - imageViewerState.startX);
+  event.currentTarget.scrollTop = imageViewerState.scrollTop - (event.clientY - imageViewerState.startY);
+});
+function stopImageViewerDrag(event) {
+  imageViewerState.dragging = false;
+  event.currentTarget.classList.remove("is-dragging");
+}
+el("image-viewer-stage").addEventListener("pointerup", stopImageViewerDrag);
+el("image-viewer-stage").addEventListener("pointercancel", stopImageViewerDrag);
+el("review-image-dialog").addEventListener("click", (event) => { if (event.target === event.currentTarget) closeImageViewer(); });
+el("review-image-dialog").addEventListener("keydown", (event) => {
+  if (["+", "="].includes(event.key)) { event.preventDefault(); applyImageViewerZoom(imageViewerState.zoom + IMAGE_VIEWER_ZOOM_STEP); }
+  if (event.key === "-") { event.preventDefault(); applyImageViewerZoom(imageViewerState.zoom - IMAGE_VIEWER_ZOOM_STEP); }
+  if (event.key === "0") { event.preventDefault(); fitImageViewer(); }
+});
+el("review-image-dialog").addEventListener("close", () => {
+  document.body.classList.remove("image-viewer-open"); imageViewerState.dragging = false;
+  imageViewerState.trigger?.focus?.(); imageViewerState.trigger = null;
+});
+window.addEventListener("resize", () => { if (el("review-image-dialog").open) fitImageViewer(); });
 el("review-copy-id").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(el("review-run-id").textContent); el("review-message").className = "message success"; el("review-message").textContent = "Grading run ID copied."; }
   catch { el("review-message").className = "message"; el("review-message").textContent = "Copy was blocked by the browser. Select the run ID and copy it manually."; }
